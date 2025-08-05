@@ -135,3 +135,8 @@ coverage
 
 # Claude code
 .claude/
+
+# Project specific files
+health-cards-dev-tools/
+test-output/
+test-with-validator.js

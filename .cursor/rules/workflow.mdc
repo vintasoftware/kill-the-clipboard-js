@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+# Development Workflow
+
+* Remember to update the SMART_HEALTH_CARDS_IMPLEMENTATION.md file with the latest changes.
+* Stop and ask for feedback at the end of each task
+* Use pnpm

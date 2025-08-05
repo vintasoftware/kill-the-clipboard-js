@@ -1,7 +1,7 @@
 {
-  "name": "typescript-library-template",
+  "name": "kill-the-clipboard-js",
   "version": "0.0.1",
-  "description": "A neg4n's template for creating TypeScript libraries",
+  "description": "JavaScript/TypeScript library to generate QR codes containing medical records for patients to share with providers. Implements the SMART Health Cards Framework for FHIR-based medical records.",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.esm.js",
@@ -26,7 +26,7 @@
     "dev": "rollup -c --watch",
     "typecheck": "tsc --noEmit",
     "attw": "attw --pack .",
-    "test": "vitest",
+    "test": "vitest --run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
     "lint": "biome check .",
@@ -40,9 +40,14 @@
     "*.{js,ts,json}": "biome check --write --no-errors-on-unmatched"
   },
   "keywords": [
+    "smart-health-cards",
+    "fhir",
+    "qr-code",
+    "medical-records",
+    "healthtech",
+    "healthcare",
     "typescript",
-    "library",
-    "template"
+    "javascript"
   ],
   "author": {
     "email": "neg4n@icloud.com",
@@ -51,7 +56,17 @@
   },
   "license": "MIT",
   "packageManager": "pnpm@10.8.0",
+  "dependencies": {
+    "jose": "^6.0.12",
+    "qrcode": "^1.5.0",
+    "fflate": "^0.8.0",
+    "ajv": "^8.0.0"
+  },
   "devDependencies": {
+    "@medplum/fhirtypes": "^3.0.0",
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.0",
+    "undici-types": "^6.0.0",
     "@arethetypeswrong/cli": "^0.18.2",
     "@biomejs/biome": "2.0.4",
     "@rollup/plugin-commonjs": "^28.0.6",
