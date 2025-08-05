@@ -31,10 +31,14 @@ This aligns with the [CMS Interoperability Framework](https://www.cms.gov/health
 - Built for Node.js and browser environments
 - Web-compatible file operations
 
+✅ **QR Code Support**
+- QR code generation with `shc:/` prefix and numeric encoding
+- Single QR mode (primary) and chunked QR support (compatibility)
+- Complete QR code scanning and reconstruction
+- Visual QR code testing and validation
+
 🔄 **Coming Soon**
-- QR code generation with `shc:/` prefix
 - DEFLATE compression for payload optimization
-- Multi-chunk QR support (deprecated but available for compatibility)
 
 ## Installation
 
@@ -116,7 +120,8 @@ import {
   SmartHealthCard,
   FhirBundleProcessor, 
   VerifiableCredentialProcessor,
-  JWSProcessor 
+  JWSProcessor,
+  QRCodeGenerator 
 } from 'kill-the-clipboard-js';
 
 // Use individual processors for more control
@@ -146,6 +151,20 @@ const jws = await jwsProcessor.sign(jwtPayload, privateKey, keyId);
 
 // Verify JWS
 const verified = await jwsProcessor.verify(jws, publicKey);
+
+// Generate QR codes
+const qrGenerator = new QRCodeGenerator({
+  errorCorrectionLevel: 'L',
+  maxSingleQRSize: 1195,
+  enableChunking: false // Use single QR mode (recommended)
+});
+
+const qrDataUrls = await qrGenerator.generateQR(jws);
+console.log('Generated QR code data URL:', qrDataUrls[0]);
+
+// Scan QR codes (simulate scanning with numeric data)
+const scannedData = ['shc:/56762959532654603460292540772804336028702864716745...'];
+const reconstructedJWS = await qrGenerator.scanQR(scannedData);
 ```
 
 ### Error Handling
@@ -155,7 +174,8 @@ import {
   SmartHealthCard, 
   SmartHealthCardError,
   FhirValidationError,
-  JWSError 
+  JWSError,
+  QRCodeError 
 } from 'kill-the-clipboard-js';
 
 try {
@@ -165,6 +185,8 @@ try {
     console.error('FHIR Bundle validation failed:', error.message);
   } else if (error instanceof JWSError) {
     console.error('JWT/JWS processing failed:', error.message);
+  } else if (error instanceof QRCodeError) {
+    console.error('QR code processing failed:', error.message);
   } else if (error instanceof SmartHealthCardError) {
     console.error('SMART Health Card error:', error.message, error.code);
   } else {
@@ -283,6 +305,14 @@ Handles JWT/JWS signing and verification with ES256 algorithm.
 - `verify(jws: string, publicKey): Promise<SmartHealthCardJWT>` - Verifies JWS
 - `decode(jws: string): Promise<{header, payload}>` - Decodes without verification
 
+### `QRCodeGenerator`
+
+Generates and scans QR codes for SMART Health Cards with proper numeric encoding.
+
+- `generateQR(jws: string): Promise<string[]>` - Generates QR code data URLs
+- `scanQR(qrCodeData: string[]): Promise<string>` - Reconstructs JWS from QR data
+- `encodeJWSToNumeric(jws: string): string` - Converts JWS to numeric format (Ord(c)-45)
+
 ## Technical Details
 
 ### SMART Health Cards Flow
@@ -292,8 +322,8 @@ Handles JWT/JWS signing and verification with ES256 algorithm.
 3. **JWT Payload** → Includes issuer (`iss`), not-before (`nbf`), and VC
 4. **JWS Signature** → Signed with ES256 (ECDSA P-256) algorithm
 5. **File Generation** → `.smart-health-card` files for download/sharing
-6. **Optional Compression** → DEFLATE compression (coming soon)
-7. **QR Code** → Generated with `shc:/` prefix (coming soon)
+6. **QR Code Generation** → Single or chunked QR codes with `shc:/` prefix and numeric encoding
+7. **Optional Compression** → DEFLATE compression (coming soon)
 
 ### Security
 

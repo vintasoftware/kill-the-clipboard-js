@@ -466,10 +466,11 @@ export class VerifiableCredentialProcessor {
       throw new FhirValidationError('SMART Health Cards context must include correct @vocab')
     }
 
+    const fhirBundleContext = smartContextObj['fhirBundle'] as Record<string, unknown>
     if (
-      !smartContextObj['fhirBundle'] ||
-      smartContextObj['fhirBundle']['@id'] !== 'https://smarthealth.cards#fhirBundle' ||
-      smartContextObj['fhirBundle']['@type'] !== '@json'
+      !fhirBundleContext ||
+      fhirBundleContext['@id'] !== 'https://smarthealth.cards#fhirBundle' ||
+      fhirBundleContext['@type'] !== '@json'
     ) {
       throw new FhirValidationError(
         'SMART Health Cards context must include correct fhirBundle definition'
@@ -692,16 +693,260 @@ export class JWSProcessor {
 }
 
 export class QRCodeGenerator {
-  // @ts-ignore: will be implemented in later tasks
-  constructor(private config: QRCodeConfig = {}) {}
-
-  // Will be implemented in later tasks
-  async generateQR(_jws: string): Promise<string[]> {
-    throw new Error('Not implemented yet')
+  constructor(private config: QRCodeConfig = {}) {
+    // Set default configuration values
+    this.config.errorCorrectionLevel = this.config.errorCorrectionLevel || 'L'
+    this.config.maxSingleQRSize = this.config.maxSingleQRSize || 1195
+    this.config.enableChunking = this.config.enableChunking ?? false
   }
 
-  async scanQR(_qrCodeData: string[]): Promise<string> {
-    throw new Error('Not implemented yet')
+  /**
+   * Generates QR code data URLs from a JWS string
+   * Returns array of data URLs (single QR for most cases, multiple for chunked)
+   */
+  async generateQR(jws: string): Promise<string[]> {
+    try {
+      // Convert JWS to SMART Health Cards numeric format
+      const numericData = this.encodeJWSToNumeric(jws)
+
+      // Check if we need chunking (deprecated but supported for compatibility)
+      const needsChunking =
+        this.config.enableChunking && numericData.length > (this.config.maxSingleQRSize || 1195)
+
+      if (needsChunking) {
+        return await this.generateChunkedQR(numericData)
+      } else {
+        return await this.generateSingleQR(numericData)
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      throw new QRCodeError(`QR code generation failed: ${errorMessage}`)
+    }
+  }
+
+  /**
+   * Scans QR code data and reconstructs the original JWS
+   * Accepts array of QR code numeric strings (for chunked QR support)
+   */
+  async scanQR(qrCodeData: string[]): Promise<string> {
+    try {
+      if (!qrCodeData || qrCodeData.length === 0) {
+        throw new QRCodeError('No QR code data provided')
+      }
+
+      // Handle single QR code
+      if (qrCodeData.length === 1) {
+        const firstQRData = qrCodeData[0]
+        if (!firstQRData) {
+          throw new QRCodeError('QR code data is undefined')
+        }
+        return this.decodeSingleQR(firstQRData)
+      }
+
+      // Handle chunked QR codes
+      return this.decodeChunkedQR(qrCodeData)
+    } catch (error) {
+      if (error instanceof QRCodeError) {
+        throw error
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      throw new QRCodeError(`QR code scanning failed: ${errorMessage}`)
+    }
+  }
+
+  /**
+   * Encodes a JWS string to SMART Health Cards numeric format
+   * Each character is converted to (ASCII code - 45), zero-padded to 2 digits
+   */
+  public encodeJWSToNumeric(jws: string): string {
+    const b64Offset = '-'.charCodeAt(0) // 45
+
+    return jws
+      .split('')
+      .map(char => {
+        const ascii = char.charCodeAt(0)
+        const numericValue = ascii - b64Offset
+
+        // Validate that the character is in the expected base64url range
+        if (numericValue < 0 || numericValue > 77) {
+          throw new QRCodeError(
+            `Invalid character '${char}' in JWS. Expected base64url characters only.`
+          )
+        }
+
+        // Zero-pad to 2 digits
+        return numericValue.toString().padStart(2, '0')
+      })
+      .join('')
+  }
+
+  /**
+   * Generates a single QR code with shc:/ prefix
+   */
+  private async generateSingleQR(numericData: string): Promise<string[]> {
+    const { default: QRCode } = await import('qrcode')
+
+    const qrContent = `shc:/${numericData}`
+
+    // Generate QR code as data URL
+    const qrDataUrl = await QRCode.toDataURL(qrContent, {
+      errorCorrectionLevel: this.config.errorCorrectionLevel,
+      type: 'image/png',
+      margin: 1,
+      width: 400, // Reasonable default size
+    })
+
+    return [qrDataUrl]
+  }
+
+  /**
+   * Generates chunked QR codes (deprecated but supported for compatibility)
+   */
+  private async generateChunkedQR(numericData: string): Promise<string[]> {
+    const { default: QRCode } = await import('qrcode')
+
+    // Calculate chunk size based on max QR size minus header overhead
+    const headerOverhead = 20 // Estimate for "shc:/1/N/" format
+    const chunkSize = (this.config.maxSingleQRSize || 1195) - headerOverhead
+
+    // Split numeric data into chunks
+    const chunks: string[] = []
+    for (let i = 0; i < numericData.length; i += chunkSize) {
+      chunks.push(numericData.substring(i, i + chunkSize))
+    }
+
+    const totalChunks = chunks.length
+    const qrDataUrls: string[] = []
+
+    // Generate QR code for each chunk
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkIndex = i + 1 // 1-based indexing
+      const qrContent = `shc:/${chunkIndex}/${totalChunks}/${chunks[i]}`
+
+      const qrDataUrl = await QRCode.toDataURL(qrContent, {
+        errorCorrectionLevel: this.config.errorCorrectionLevel,
+        type: 'image/png',
+        margin: 1,
+        width: 400,
+      })
+
+      qrDataUrls.push(qrDataUrl)
+    }
+
+    return qrDataUrls
+  }
+
+  /**
+   * Decodes a single QR code from SMART Health Cards format
+   */
+  private decodeSingleQR(qrData: string): string {
+    // Remove shc:/ prefix
+    const prefix = 'shc:/'
+    if (!qrData.startsWith(prefix)) {
+      throw new QRCodeError(`Invalid QR code format. Expected '${prefix}' prefix.`)
+    }
+
+    const numericData = qrData.substring(prefix.length)
+    return this.decodeNumericToJWS(numericData)
+  }
+
+  /**
+   * Decodes chunked QR codes and reconstructs the original JWS
+   */
+  private decodeChunkedQR(qrDataArray: string[]): string {
+    const chunks: { index: number; data: string }[] = []
+    let totalChunks = 0
+
+    // Parse each QR code chunk
+    for (const qrData of qrDataArray) {
+      const prefix = 'shc:/'
+      if (!qrData.startsWith(prefix)) {
+        throw new QRCodeError(`Invalid chunked QR code format. Expected '${prefix}' prefix.`)
+      }
+
+      const content = qrData.substring(prefix.length)
+      const parts = content.split('/')
+
+      if (parts.length !== 3) {
+        throw new QRCodeError(
+          'Invalid chunked QR code format. Expected format: shc:/INDEX/TOTAL/DATA'
+        )
+      }
+
+      const chunkIndexStr = parts[0]
+      const chunkTotalStr = parts[1]
+      const chunkData = parts[2]
+
+      if (!chunkIndexStr || !chunkTotalStr || !chunkData) {
+        throw new QRCodeError('Invalid chunked QR code format: missing parts')
+      }
+
+      const chunkIndex = parseInt(chunkIndexStr)
+      const chunkTotal = parseInt(chunkTotalStr)
+
+      if (
+        Number.isNaN(chunkIndex) ||
+        Number.isNaN(chunkTotal) ||
+        chunkIndex < 1 ||
+        chunkIndex > chunkTotal
+      ) {
+        throw new QRCodeError('Invalid chunk index or total in QR code')
+      }
+
+      if (totalChunks === 0) {
+        totalChunks = chunkTotal
+      } else if (totalChunks !== chunkTotal) {
+        throw new QRCodeError('Inconsistent total chunk count across QR codes')
+      }
+
+      chunks.push({ index: chunkIndex, data: chunkData })
+    }
+
+    // Validate we have all chunks
+    if (chunks.length !== totalChunks) {
+      throw new QRCodeError(`Missing chunks. Expected ${totalChunks}, got ${chunks.length}`)
+    }
+
+    // Sort chunks by index and reconstruct numeric data
+    chunks.sort((a, b) => a.index - b.index)
+    const numericData = chunks.map(chunk => chunk.data).join('')
+
+    return this.decodeNumericToJWS(numericData)
+  }
+
+  /**
+   * Decodes numeric data back to JWS string
+   * Reverses the encoding process: pairs of digits -> (value + 45) -> ASCII character
+   */
+  private decodeNumericToJWS(numericData: string): string {
+    // Validate even length
+    if (numericData.length % 2 !== 0) {
+      throw new QRCodeError('Invalid numeric data: must have even length')
+    }
+
+    const b64Offset = '-'.charCodeAt(0) // 45
+    const digitPairs = numericData.match(/(\d\d)/g)
+
+    if (!digitPairs) {
+      throw new QRCodeError('Invalid numeric data: cannot parse digit pairs')
+    }
+
+    // Validate each pair is within valid range (0-77)
+    for (const pair of digitPairs) {
+      const value = parseInt(pair)
+      if (value > 77) {
+        throw new QRCodeError(`Invalid digit pair '${pair}': value ${value} exceeds maximum 77`)
+      }
+    }
+
+    // Convert digit pairs back to characters
+    return digitPairs
+      .map(pair => {
+        const numericValue = parseInt(pair)
+        const asciiCode = numericValue + b64Offset
+        return String.fromCharCode(asciiCode)
+      })
+      .join('')
   }
 }
 

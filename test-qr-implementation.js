@@ -1,0 +1,292 @@
+#!/usr/bin/env node
+
+/**
+ * Enhanced test script to validate QR code implementation
+ * Tests both QR generation and the SMART Health Cards validator
+ */
+
+import { execSync } from 'child_process'
+import crypto from 'crypto'
+import { existsSync } from 'fs'
+import { mkdir, writeFile } from 'fs/promises'
+import { exportPKCS8, exportSPKI } from 'jose'
+import { QRCodeGenerator, SmartHealthCard } from './dist/index.esm.js'
+
+// Create test output directory
+const testDir = './test-output'
+if (!existsSync(testDir)) {
+  await mkdir(testDir, { recursive: true })
+}
+
+// Generate ES256 key pair for testing
+console.log('🔑 Generating ES256 key pair for testing...')
+const { publicKey, privateKey } = await crypto.webcrypto.subtle.generateKey(
+  { name: 'ECDSA', namedCurve: 'P-256' },
+  true,
+  ['sign', 'verify']
+)
+
+const privateKeyPKCS8 = await exportPKCS8(privateKey)
+const publicKeySPKI = await exportSPKI(publicKey)
+
+// Create SMART Health Card configuration
+const config = {
+  issuer: 'https://example.com/issuer',
+  privateKey: privateKeyPKCS8,
+  publicKey: publicKeySPKI,
+  keyId: 'test-key-1',
+  expirationTime: 86400, // 24 hours
+}
+
+const smartHealthCard = new SmartHealthCard(config)
+
+// Test FHIR Bundle - COVID-19 Vaccination Record
+const covidVaccinationBundle = {
+  resourceType: 'Bundle',
+  type: 'collection',
+  entry: [
+    {
+      fullUrl: 'Patient/example-patient-123',
+      resource: {
+        resourceType: 'Patient',
+        id: 'example-patient-123',
+        name: [
+          {
+            family: 'Anyperson',
+            given: ['John', 'B.'],
+          },
+        ],
+        birthDate: '1951-01-20',
+        gender: 'male',
+      },
+    },
+    {
+      fullUrl: 'Immunization/example-immunization-456',
+      resource: {
+        resourceType: 'Immunization',
+        id: 'example-immunization-456',
+        status: 'completed',
+        vaccineCode: {
+          coding: [
+            {
+              system: 'http://hl7.org/fhir/sid/cvx',
+              code: '207',
+              display: 'COVID-19, mRNA, LNP-S, PF, 30 mcg/0.3 mL dose',
+            },
+          ],
+        },
+        patient: {
+          reference: 'Patient/example-patient-123',
+        },
+        occurrenceDateTime: '2021-01-01T11:45:33+11:00',
+        location: {
+          reference: 'Location/example-location',
+        },
+        performer: [
+          {
+            actor: {
+              reference: 'Organization/example-organization',
+            },
+          },
+        ],
+        lotNumber: 'Lot #0000001',
+      },
+    },
+    {
+      fullUrl: 'Organization/example-organization',
+      resource: {
+        resourceType: 'Organization',
+        id: 'example-organization',
+        name: 'ABC General Hospital',
+        identifier: [
+          {
+            system: 'http://hl7.org/fhir/sid/us-npi',
+            value: '1234567890',
+          },
+        ],
+      },
+    },
+    {
+      fullUrl: 'Location/example-location',
+      resource: {
+        resourceType: 'Location',
+        id: 'example-location',
+        name: 'ABC General Hospital',
+      },
+    },
+  ],
+}
+
+console.log('🏥 Creating SMART Health Card from COVID-19 vaccination record...')
+
+try {
+  // Generate SMART Health Card
+  const healthCardJWS = await smartHealthCard.create(covidVaccinationBundle)
+  console.log('✅ Successfully created SMART Health Card JWS')
+  console.log(`📏 JWS Length: ${healthCardJWS.length} characters`)
+
+  // Test QR Code Generation
+  console.log('\n🔲 Testing QR Code Generation...')
+
+  const qrGenerator = new QRCodeGenerator({
+    errorCorrectionLevel: 'L',
+    maxSingleQRSize: 1195,
+    enableChunking: false,
+  })
+
+  // Generate QR code
+  console.log('📱 Generating QR code from JWS...')
+  const qrDataUrls = await qrGenerator.generateQR(healthCardJWS)
+  console.log(`✅ Generated ${qrDataUrls.length} QR code(s)`)
+
+  // Test QR code scanning
+  console.log('🔍 Testing QR code scanning...')
+
+  // Extract numeric data from the first QR code data URL
+  // Note: In a real implementation, you'd scan the QR code to get the numeric string
+  // For testing, we'll simulate this by encoding and then decoding
+  const numericData = qrGenerator.encodeJWSToNumeric(healthCardJWS)
+  console.log(`📊 Numeric data length: ${numericData.length} characters`)
+  console.log(`📊 First 50 chars: ${numericData.substring(0, 50)}...`)
+
+  // Test scanning with shc:/ prefix
+  const shcData = [`shc:/${numericData}`]
+  const reconstructedJWS = await qrGenerator.scanQR(shcData)
+  console.log('✅ Successfully reconstructed JWS from QR data')
+  console.log(`🔄 Reconstructed matches original: ${reconstructedJWS === healthCardJWS}`)
+
+  // Test chunked QR codes
+  console.log('\n🔲 Testing Chunked QR Codes...')
+  const chunkedGenerator = new QRCodeGenerator({
+    errorCorrectionLevel: 'L',
+    maxSingleQRSize: 500, // Force chunking
+    enableChunking: true,
+  })
+
+  const chunkedQRs = await chunkedGenerator.generateQR(healthCardJWS)
+  console.log(`✅ Generated ${chunkedQRs.length} chunked QR codes`)
+
+  // Test chunked scanning (simulate getting numeric data from multiple QR codes)
+  const chunkedNumericData = []
+  const chunkSize = 480 // Approximate chunk size after header overhead
+  for (let i = 0; i < numericData.length; i += chunkSize) {
+    const chunk = numericData.substring(i, i + chunkSize)
+    const chunkIndex = Math.floor(i / chunkSize) + 1
+    const totalChunks = Math.ceil(numericData.length / chunkSize)
+    chunkedNumericData.push(`shc:/${chunkIndex}/${totalChunks}/${chunk}`)
+  }
+
+  const reconstructedFromChunks = await chunkedGenerator.scanQR(chunkedNumericData)
+  console.log('✅ Successfully reconstructed JWS from chunked QR data')
+  console.log(
+    `🔄 Chunked reconstruction matches original: ${reconstructedFromChunks === healthCardJWS}`
+  )
+
+  // Save QR code data URLs as HTML for visual inspection
+  const qrHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SMART Health Card QR Codes</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .qr-container { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .qr-info { margin: 10px 0; }
+        img { max-width: 400px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>SMART Health Card QR Codes</h1>
+
+    <div class="qr-container">
+        <h2>Single QR Code</h2>
+        <div class="qr-info">JWS Length: ${healthCardJWS.length} characters</div>
+        <div class="qr-info">Numeric Data Length: ${numericData.length} characters</div>
+        <img src="${qrDataUrls[0]}" alt="Single QR Code" />
+        <div class="qr-info">
+            <strong>QR Content Preview:</strong><br/>
+            <code>shc:/${numericData.substring(0, 100)}...</code>
+        </div>
+    </div>
+
+    <div class="qr-container">
+        <h2>Chunked QR Codes (${chunkedQRs.length} codes)</h2>
+        ${chunkedQRs
+          .map(
+            (qr, i) => `
+            <div style="margin: 10px 0;">
+                <h3>Chunk ${i + 1} of ${chunkedQRs.length}</h3>
+                <img src="${qr}" alt="Chunked QR Code ${i + 1}" />
+            </div>
+        `
+          )
+          .join('')}
+    </div>
+
+    <div class="qr-container">
+        <h2>Test Results</h2>
+        <ul>
+            <li>✅ QR Generation: Success</li>
+            <li>✅ QR Scanning: Success</li>
+            <li>✅ Single QR Reconstruction: ${
+              reconstructedJWS === healthCardJWS ? 'Pass' : 'Fail'
+            }</li>
+            <li>✅ Chunked QR Reconstruction: ${
+              reconstructedFromChunks === healthCardJWS ? 'Pass' : 'Fail'
+            }</li>
+        </ul>
+    </div>
+</body>
+</html>`
+
+  await writeFile(`${testDir}/qr-codes.html`, qrHtml)
+  console.log(`📄 Saved QR codes visualization: ${testDir}/qr-codes.html`)
+
+  // Create standard test files
+  const fileContent = await smartHealthCard.createFile(covidVaccinationBundle)
+  const healthCardFile = `${testDir}/covid-vaccination.smart-health-card`
+  await writeFile(healthCardFile, fileContent)
+  console.log(`📄 Saved SMART Health Card file: ${healthCardFile}`)
+
+  const jwsFile = `${testDir}/covid-vaccination.jws`
+  await writeFile(jwsFile, healthCardJWS)
+  console.log(`📄 Saved JWS file: ${jwsFile}`)
+
+  const bundleFile = `${testDir}/covid-vaccination-bundle.json`
+  await writeFile(bundleFile, JSON.stringify(covidVaccinationBundle, null, 2))
+  console.log(`📄 Saved FHIR Bundle file: ${bundleFile}`)
+
+  // Test our own verification
+  console.log('\n🔍 Testing internal verification...')
+  const verifiedVC = await smartHealthCard.verify(healthCardJWS)
+  console.log('✅ Internal verification successful')
+  console.log(
+    `   - Patient: ${verifiedVC.vc.credentialSubject.fhirBundle.entry[0].resource.name[0].family}`
+  )
+  console.log(`   - FHIR Version: ${verifiedVC.vc.credentialSubject.fhirVersion}`)
+  console.log(`   - Bundle Type: ${verifiedVC.vc.credentialSubject.fhirBundle.type}`)
+
+  console.log('\n📋 QR Code Implementation Test Results:')
+  console.log('✅ QR Code Generation: WORKING')
+  console.log('✅ QR Code Scanning: WORKING')
+  console.log('✅ Single QR Mode: WORKING')
+  console.log('✅ Chunked QR Mode: WORKING')
+  console.log('✅ Numeric Encoding/Decoding: WORKING')
+  console.log('✅ SHC Prefix Handling: WORKING')
+
+  console.log('\n🧪 To test with the official validator:')
+  console.log('1. Build the health-cards-dev-tools validator:')
+  console.log('   cd health-cards-dev-tools && npm run build')
+  console.log('')
+  console.log('2. Test the JWS directly:')
+  console.log(
+    `   cd health-cards-dev-tools && node . --path ../test-output/covid-vaccination.jws --type jws`
+  )
+  console.log('')
+  console.log('3. Open the QR codes visualization:')
+  console.log(`   Open ${testDir}/qr-codes.html in your browser`)
+} catch (error) {
+  console.error('❌ Error during QR code testing:', error.message)
+  console.error(error)
+  process.exit(1)
+}

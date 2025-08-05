@@ -5,6 +5,8 @@ import {
   FhirValidationError,
   JWSError,
   JWSProcessor,
+  QRCodeError,
+  QRCodeGenerator,
   SmartHealthCard,
   type SmartHealthCardConfig,
   SmartHealthCardError,
@@ -75,7 +77,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should set default Bundle.type to "collection"', () => {
         const bundle = createValidFhirBundle()
-        delete bundle.type
+        delete (bundle as any).type
 
         const result = processor.process(bundle)
         expect(result.type).toBe('collection')
@@ -939,6 +941,291 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         // Step 3: Verify data integrity
         expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(validBundle)
+      })
+    })
+  })
+
+  describe('QRCodeGenerator', () => {
+    let qrGenerator: QRCodeGenerator
+    let validJWS: string
+
+    // Test key pairs for ES256 (these are for testing only - never use in production)
+    const testPrivateKeyPKCS8 = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgF+y5n2Nu3g2hwBj+
+uVYulsHxb7VQg+0yIHMBgD0dLwyhRANCAAScrWM5QO21TdhCZpZhRwlD8LzgTYkR
+CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
+-----END PRIVATE KEY-----`
+
+    const testPublicKeySPKI = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
+EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
+-----END PUBLIC KEY-----`
+
+    beforeEach(async () => {
+      qrGenerator = new QRCodeGenerator()
+
+      // Create a valid JWS for testing
+      const smartHealthCard = new SmartHealthCard({
+        issuer: 'https://example.com/issuer',
+        privateKey: testPrivateKeyPKCS8,
+        publicKey: testPublicKeySPKI,
+        keyId: 'test-key-id',
+      })
+
+      const validBundle = createValidFhirBundle()
+      validJWS = await smartHealthCard.create(validBundle)
+    })
+
+    describe('generateQR()', () => {
+      it('should generate a single QR code data URL', async () => {
+        const qrDataUrls = await qrGenerator.generateQR(validJWS)
+
+        expect(qrDataUrls).toBeDefined()
+        expect(Array.isArray(qrDataUrls)).toBe(true)
+        expect(qrDataUrls).toHaveLength(1)
+        expect(qrDataUrls[0]).toMatch(/^data:image\/png;base64,/)
+      })
+
+      it('should generate chunked QR codes when enabled and JWS is large', async () => {
+        const chunkedGenerator = new QRCodeGenerator({
+          enableChunking: true,
+          maxSingleQRSize: 100, // Very small size to force chunking
+        })
+
+        const qrDataUrls = await chunkedGenerator.generateQR(validJWS)
+
+        expect(qrDataUrls).toBeDefined()
+        expect(Array.isArray(qrDataUrls)).toBe(true)
+        expect(qrDataUrls.length).toBeGreaterThan(1)
+
+        // All should be valid data URLs
+        for (const dataUrl of qrDataUrls) {
+          expect(dataUrl).toMatch(/^data:image\/png;base64,/)
+        }
+      })
+
+      it('should throw QRCodeError for invalid JWS characters', async () => {
+        const invalidJWS = 'invalid-jws-with-unicode-€'
+
+        await expect(qrGenerator.generateQR(invalidJWS)).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.generateQR(invalidJWS)).rejects.toThrow('Invalid character')
+      })
+
+      it('should use default configuration values', () => {
+        const defaultGenerator = new QRCodeGenerator()
+
+        expect(defaultGenerator['config'].errorCorrectionLevel).toBe('L')
+        expect(defaultGenerator['config'].maxSingleQRSize).toBe(1195)
+        expect(defaultGenerator['config'].enableChunking).toBe(false)
+      })
+
+      it('should respect custom configuration values', () => {
+        const customGenerator = new QRCodeGenerator({
+          errorCorrectionLevel: 'H',
+          maxSingleQRSize: 2000,
+          enableChunking: true,
+        })
+
+        expect(customGenerator['config'].errorCorrectionLevel).toBe('H')
+        expect(customGenerator['config'].maxSingleQRSize).toBe(2000)
+        expect(customGenerator['config'].enableChunking).toBe(true)
+      })
+    })
+
+    describe('scanQR()', () => {
+      it('should decode a single QR code back to original JWS', async () => {
+        // First generate QR code
+        const qrDataUrls = await qrGenerator.generateQR(validJWS)
+        expect(qrDataUrls).toHaveLength(1) // Ensure QR was generated
+
+        // Extract the numeric data from the QR code content manually
+        // Since we can't actually scan an image in tests, we'll simulate the process
+        const numericData = qrGenerator['encodeJWSToNumeric'](validJWS)
+        const qrContent = `shc:/${numericData}`
+
+        // Decode back to JWS
+        const decodedJWS = await qrGenerator.scanQR([qrContent])
+
+        expect(decodedJWS).toBe(validJWS)
+      })
+
+      it('should decode chunked QR codes back to original JWS', async () => {
+        const chunkedGenerator = new QRCodeGenerator({
+          enableChunking: true,
+          maxSingleQRSize: 100, // Force chunking
+        })
+
+        // Simulate chunked QR content
+        const numericData = chunkedGenerator['encodeJWSToNumeric'](validJWS)
+        const chunkSize = 80 // Smaller than maxSingleQRSize minus header
+        const chunks: string[] = []
+
+        for (let i = 0; i < numericData.length; i += chunkSize) {
+          chunks.push(numericData.substring(i, i + chunkSize))
+        }
+
+        const qrContents = chunks.map(
+          (chunk, index) => `shc:/${index + 1}/${chunks.length}/${chunk}`
+        )
+
+        const decodedJWS = await qrGenerator.scanQR(qrContents)
+        expect(decodedJWS).toBe(validJWS)
+      })
+
+      it('should throw QRCodeError for empty QR data', async () => {
+        await expect(qrGenerator.scanQR([])).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR([])).rejects.toThrow('No QR code data provided')
+      })
+
+      it('should throw QRCodeError for invalid QR format', async () => {
+        await expect(qrGenerator.scanQR(['invalid-qr-data'])).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR(['invalid-qr-data'])).rejects.toThrow(
+          "Invalid QR code format. Expected 'shc:/' prefix"
+        )
+      })
+
+      it('should throw QRCodeError for invalid chunked format', async () => {
+        const invalidChunked = ['shc:/1/2', 'shc:/2/2/data'] // Missing data in first chunk
+
+        await expect(qrGenerator.scanQR(invalidChunked)).rejects.toThrow(QRCodeError)
+      })
+
+      it('should throw QRCodeError for missing chunks', async () => {
+        const incompleteChunks = [
+          'shc:/1/3/123456',
+          'shc:/3/3/789012', // Missing chunk 2
+        ]
+
+        await expect(qrGenerator.scanQR(incompleteChunks)).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR(incompleteChunks)).rejects.toThrow(
+          'Missing chunks. Expected 3, got 2'
+        )
+      })
+
+      it('should throw QRCodeError for inconsistent chunk totals', async () => {
+        const inconsistentChunks = [
+          'shc:/1/2/123456',
+          'shc:/2/3/789012', // Different total count
+        ]
+
+        await expect(qrGenerator.scanQR(inconsistentChunks)).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR(inconsistentChunks)).rejects.toThrow(
+          'Inconsistent total chunk count'
+        )
+      })
+
+      it('should throw QRCodeError for invalid numeric data', async () => {
+        const invalidNumeric = 'shc:/12345' // Odd length
+
+        await expect(qrGenerator.scanQR([invalidNumeric])).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR([invalidNumeric])).rejects.toThrow(
+          'Invalid numeric data: must have even length'
+        )
+      })
+
+      it('should throw QRCodeError for out-of-range digit pairs', async () => {
+        const outOfRange = 'shc:/9999' // 99 > 77 (max value for 'z')
+
+        await expect(qrGenerator.scanQR([outOfRange])).rejects.toThrow(QRCodeError)
+        await expect(qrGenerator.scanQR([outOfRange])).rejects.toThrow(
+          "Invalid digit pair '99': value 99 exceeds maximum 77"
+        )
+      })
+    })
+
+    describe('numeric encoding/decoding', () => {
+      it('should correctly encode and decode all valid base64url characters', () => {
+        const base64urlChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_='
+
+        const encoded = qrGenerator['encodeJWSToNumeric'](base64urlChars)
+        const decoded = qrGenerator['decodeNumericToJWS'](encoded)
+
+        expect(decoded).toBe(base64urlChars)
+      })
+
+      it('should produce expected numeric values for known characters', () => {
+        // Test specific character mappings
+        const testCases = [
+          { char: '-', expected: '00' }, // ASCII 45 - 45 = 0
+          { char: 'A', expected: '20' }, // ASCII 65 - 45 = 20
+          { char: 'a', expected: '52' }, // ASCII 97 - 45 = 52
+          { char: 'z', expected: '77' }, // ASCII 122 - 45 = 77
+          { char: '0', expected: '03' }, // ASCII 48 - 45 = 3
+          { char: '9', expected: '12' }, // ASCII 57 - 45 = 12
+        ]
+
+        for (const testCase of testCases) {
+          const encoded = qrGenerator['encodeJWSToNumeric'](testCase.char)
+          expect(encoded).toBe(testCase.expected)
+        }
+      })
+
+      it('should handle round-trip encoding correctly', () => {
+        // Use part of a real JWS header
+        const jwtHeader = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9'
+
+        const encoded = qrGenerator['encodeJWSToNumeric'](jwtHeader)
+        const decoded = qrGenerator['decodeNumericToJWS'](encoded)
+
+        expect(decoded).toBe(jwtHeader)
+      })
+    })
+
+    describe('end-to-end QR workflow', () => {
+      it('should handle complete QR generation and scanning workflow', async () => {
+        // Generate QR codes
+        const qrDataUrls = await qrGenerator.generateQR(validJWS)
+        expect(qrDataUrls).toHaveLength(1)
+
+        // Simulate scanning process (extract content from QR)
+        const numericData = qrGenerator['encodeJWSToNumeric'](validJWS)
+        const qrContent = `shc:/${numericData}`
+
+        // Scan and decode
+        const scannedJWS = await qrGenerator.scanQR([qrContent])
+
+        // Should match original
+        expect(scannedJWS).toBe(validJWS)
+
+        // Should be verifiable
+        const smartHealthCard = new SmartHealthCard({
+          issuer: 'https://example.com/issuer',
+          privateKey: testPrivateKeyPKCS8,
+          publicKey: testPublicKeySPKI,
+          keyId: 'test-key-id',
+        })
+
+        const verifiedVC = await smartHealthCard.verify(scannedJWS)
+        expect(verifiedVC).toBeDefined()
+        expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(createValidFhirBundle())
+      })
+
+      it('should handle chunked QR workflow', async () => {
+        const chunkedGenerator = new QRCodeGenerator({
+          enableChunking: true,
+          maxSingleQRSize: 100,
+        })
+
+        // Generate chunked QR codes
+        const qrDataUrls = await chunkedGenerator.generateQR(validJWS)
+        expect(qrDataUrls.length).toBeGreaterThan(1)
+
+        // Simulate chunked scanning
+        const numericData = chunkedGenerator['encodeJWSToNumeric'](validJWS)
+        const chunkSize = 80
+        const chunks: string[] = []
+
+        for (let i = 0; i < numericData.length; i += chunkSize) {
+          chunks.push(numericData.substring(i, i + chunkSize))
+        }
+
+        const qrContents = chunks.map(
+          (chunk, index) => `shc:/${index + 1}/${chunks.length}/${chunk}`
+        )
+
+        // Scan and decode
+        const scannedJWS = await chunkedGenerator.scanQR(qrContents)
+        expect(scannedJWS).toBe(validJWS)
       })
     })
   })

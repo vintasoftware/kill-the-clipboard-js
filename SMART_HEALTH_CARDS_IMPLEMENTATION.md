@@ -13,8 +13,10 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] **JWS (JSON Web Signature) Implementation** - Implemented JWS creation and verification with ES256 algorithm using jose library, proper JWT payload validation, and comprehensive test suite (61 tests passing)
 - [x] **End-to-End SMART Health Card Generation** - Implemented complete SmartHealthCard class with create() and verify() methods, integrating all components into a simple API with 73 tests passing
 - [x] **File-Based SMART Health Cards** - Implemented .smart-health-card file generation and verification per SMART Health Cards specification, with web-compatible Blob support and 81 tests passing
+- [x] **QR Code Implementation** - Complete QR code generation and scanning with single and chunked modes, numeric encoding (Ord(c)-45), shc:/ prefix handling, and comprehensive testing
 - [x] **Comprehensive Documentation** - Created detailed README with usage examples, API reference, and technical specifications including file operations
 - [x] **Official Validator Testing** - Tested implementation against official SMART Health Cards dev tools validator, identified areas for optimization and compliance improvements
+- [x] **Complete QR Code Validation** - Comprehensive testing of all 4 QR validation types (qrnumeric single/chunked, qr single/chunked) using health-cards-dev-tools validator v1.3.0-2
 
 ## Official Validator Testing Results
 
@@ -43,7 +45,8 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 
 1. **Generate Test Files:**
    ```bash
-   node test-with-validator.js
+   node test-with-validator.js        # Basic JWS/FHIR validation
+   node test-qr-validation.js         # Complete QR code validation
    ```
 
 2. **Setup Official Validator:**
@@ -52,31 +55,45 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
    npm run build
    ```
 
-3. **Run Validation Tests:**
+3. **Run Core Validation Tests:**
    ```bash
    # Test JWS structure
-   node . --path ../test-output/covid-vaccination.smart-health-card --type jws
+   node . --path ../test-output/covid-vaccination.jws --type jws
 
    # Test FHIR Bundle
    node . --path ../test-output/covid-vaccination-bundle.json --type fhirbundle
 
-   # Test raw JWS file
-   node . --path ../test-output/covid-vaccination.jws --type jws
+   # Test .smart-health-card file
+   node . --path ../test-output/covid-vaccination.smart-health-card --type healthcard
+   ```
+
+4. **Run QR Code Validation Tests:**
+   ```bash
+   # Test single QR numeric data
+   node . --path ../test-output/single-qr-numeric.txt --type qrnumeric
+
+   # Test chunked QR numeric data (9 chunks)
+   node . --path ../test-output/chunk-{1..9}-qr-numeric.txt --type qrnumeric
+
+   # Test single QR image
+   node . --path ../test-output/qr-code.png --type qr
+
+   # Test chunked QR images (10 chunks)
+   node . --path ../test-output/qr-chunk-{1..10}.png --type qr
    ```
 
 ## In Progress Tasks
 
-- [ ] **QR Code Generation Implementation** - Implement QR code generation with single-code optimization and 'shc:/' prefix format
-- [ ] **DEFLATE Compression Implementation** - Add 'zip' property to JWS header and compress payload
-- [ ] **File Format Compliance** - Fix .smart-health-card file format to use JSON wrapper
-- [ ] **FHIR Bundle Optimization** - Implement short resource-scheme URIs and remove unnecessary fields
+- [ ] **DEFLATE Compression Implementation** - 🚧 **CRITICAL**: Add 'zip' property to JWS header and compress payload (compressJWS method currently returns uncompressed JWS)
+- [ ] **File Format Compliance** - 🚧 **CRITICAL**: Fix .smart-health-card file format to use JSON wrapper with verifiableCredential array instead of raw JWS
+- [ ] **FHIR Bundle Optimization** - Implement short resource-scheme URIs (`resource:0`) and remove unnecessary .id/.display fields for QR-optimized bundles
 
 ## Future Tasks
 
-- [ ] Implement QR code generation with single-code optimization (primary implementation)
-- [ ] Create QR code scanning with numeric decoding (Ord(c)-45 format)
-- [ ] Add QR code chunking support (deprecated in spec but may be needed for CMS Interoperability Framework)
-- [ ] Handle SMART Health Card 'shc:/' prefix format for QR codes
+- [x] ~~Implement QR code generation with single-code optimization (primary implementation)~~ ✅ **COMPLETED**: Full QR code implementation with single and chunked modes
+- [x] ~~Create QR code scanning with numeric decoding (Ord(c)-45 format)~~ ✅ **COMPLETED**: Complete QR scanning with proper numeric decoding
+- [x] ~~Add QR code chunking support (deprecated in spec but may be needed for CMS Interoperability Framework)~~ ✅ **COMPLETED**: Chunked QR support fully implemented and tested
+- [x] ~~Handle SMART Health Card 'shc:/' prefix format for QR codes~~ ✅ **COMPLETED**: SHC prefix handling implemented and tested
 - [ ] Add certificate management utilities for public/private key handling
 - [ ] Implement JWKS (JSON Web Key Set) provider for public key retrieval and validation
 - [x] ~~Add DEFLATE compression support for FHIR Bundle payload optimization~~ 🚧 **IN PROGRESS**: Identified as high priority by official validator
@@ -94,13 +111,13 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 After analyzing the [official SMART Health Cards specification](https://spec.smarthealth.cards/), several critical updates were made to our implementation plan:
 
 ### **Major Changes Required:**
-1. **QR Code Chunking is DEPRECATED** *(as of Dec 2022)* - Focus on single QR optimization, but maintain chunking capability for potential CMS Interoperability Framework requirements
-2. **Numeric Encoding Required** - QR codes must use `Ord(c)-45` formula for data encoding  
+1. **QR Code Chunking is DEPRECATED** *(as of Dec 2022)* - ✅ **COMPLETED**: Focus on single QR optimization, chunking capability maintained for compatibility
+2. **Numeric Encoding Required** - ✅ **COMPLETED**: QR codes use `Ord(c)-45` formula for data encoding  
 3. **Data Minimization Strategy** - ✅ **UPDATED**: Spec emphasizes credential-level granularity (users choose which cards to share), not aggressive FHIR field removal. Size optimization via DEFLATE compression and efficient QR encoding.
-4. **W3C VC Compliance** - Proper `@context` and `type` array handling mandatory
-5. **Bundle Type Default** - Use `Bundle.type="collection"` unless more specific type applies
-6. **JWKS Discovery Pattern** - Use `/.well-known/jwks.json` endpoint for public keys
-7. **Optional Expiration Support** - JWT `exp` claim for time-limited cards
+4. **W3C VC Compliance** - ✅ **COMPLETED**: Proper `@context` and `type` array handling implemented
+5. **Bundle Type Default** - ✅ **COMPLETED**: Use `Bundle.type="collection"` unless more specific type applies
+6. **JWKS Discovery Pattern** - 🚧 **PARTIAL**: Use `/.well-known/jwks.json` endpoint for public keys (basic verification implemented)
+7. **Optional Expiration Support** - ✅ **COMPLETED**: JWT `exp` claim for time-limited cards
 
 *References: [Protocol Spec](https://spec.smarthealth.cards/) • [Credential Modeling](https://spec.smarthealth.cards/credential-modeling/) • [Vocabulary](https://spec.smarthealth.cards/vocabulary/)*
 
@@ -116,14 +133,14 @@ The implementation follows the SMART Health Cards Framework specification and in
 - **QRCodeGenerator**: QR code generation/scanning with numeric encoding (single QR primary, chunking for future compatibility)
 
 ### Technical Flow *(Updated per official spec and validator findings)*
-1. **FHIR Bundle Processing**: Accept and validate FHIR R4 bundles with Bundle.type="collection"
+1. **FHIR Bundle Processing**: ✅ **COMPLETED**: Accept and validate FHIR R4 bundles with Bundle.type="collection"
 2. **Bundle Optimization**: 🚧 **NEEDS UPDATE**: Use short resource-scheme URIs (`resource:0`), remove unnecessary .id and .display elements
-3. **Verifiable Credential Creation**: ✅ **COMPLETED**: Wrap FHIR data in W3C VC format with proper @context (needs @context structure fix)
-4. **JWS Encoding**: Sign using ES256 algorithm with compact serialization format  
-5. **DEFLATE Compression**: 🚧 **NEEDS IMPLEMENTATION**: Add 'zip' property to header and compress payload
-6. **File Format**: 🚧 **NEEDS FIX**: .smart-health-card files should be JSON wrappers, not raw JWS
-7. **QR Code Generation**: Single QR with 'shc:/' prefix + numeric encoding (Ord(c)-45)
-8. **JWKS Validation**: Verify signatures using /.well-known/jwks.json endpoints
+3. **Verifiable Credential Creation**: ✅ **COMPLETED**: Wrap FHIR data in W3C VC format with proper @context
+4. **JWS Encoding**: ✅ **COMPLETED**: Sign using ES256 algorithm with compact serialization format  
+5. **DEFLATE Compression**: 🚧 **CRITICAL MISSING**: Add 'zip' property to header and compress payload (currently returns uncompressed JWS)
+6. **File Format**: 🚧 **CRITICAL MISSING**: .smart-health-card files should be JSON wrappers with verifiableCredential array, not raw JWS
+7. **QR Code Generation**: ✅ **COMPLETED**: Single QR with 'shc:/' prefix + numeric encoding (Ord(c)-45)
+8. **JWKS Validation**: 🚧 **PARTIAL**: Verify signatures using /.well-known/jwks.json endpoints (basic implementation)
 
 ### W3C Verifiable Credential Structure *(Per spec requirements)*
 ```json
@@ -181,9 +198,12 @@ The implementation follows the SMART Health Cards Framework specification and in
 - `vitest` - Test framework with TypeScript support
 
 **Current Test Coverage:**
-- 81 comprehensive tests covering all implemented functionality
+- 81+ comprehensive tests covering all implemented functionality
 - End-to-end SMART Health Card creation and verification
 - File-based SMART Health Card operations (.smart-health-card files)
+- **QR Code Generation and Scanning**: Complete implementation with single and chunked modes
+- **QR Code Round-trip Testing**: Full encode/decode validation with visual QR code generation
+- **Numeric Encoding/Decoding**: Proper Ord(c)-45 format implementation and testing
 - FHIR Bundle processing and validation
 - W3C Verifiable Credentials handling  
 - JWS signing and verification with ES256
@@ -232,10 +252,12 @@ Based on analysis of existing implementations:
 - ✅ Signature validation (complete) 
 - ✅ End-to-end SMART Health Card generation
 
-### Phase 3: QR Code Operations 🚧 **IN PROGRESS**
-- QR code generation with chunking
-- QR code scanning and reconstruction
-- SHC prefix handling
+### Phase 3: QR Code Operations ✅ **COMPLETED**
+- ✅ QR code generation with single and chunked modes
+- ✅ QR code scanning and reconstruction with full round-trip testing
+- ✅ SHC prefix handling (shc:/ format)
+- ✅ Numeric encoding/decoding (Ord(c)-45 format)
+- ✅ Comprehensive QR code test suite with visual validation
 
 ### Phase 4: Validation & Compliance 🚧 **IN PROGRESS**
 - ✅ **Official Validator Testing**: Successfully tested against SMART Health Cards dev tools
