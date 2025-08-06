@@ -1,7 +1,7 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: The test needs to use `any` to check validation errors
 
 import type { Bundle, Immunization, Patient } from '@medplum/fhirtypes'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   type FhirBundle,
   FhirBundleProcessor,
@@ -1011,7 +1011,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(qrDataUrls).toBeDefined()
         expect(Array.isArray(qrDataUrls)).toBe(true)
         expect(qrDataUrls).toHaveLength(1)
-        expect(qrDataUrls[0]).toMatch(/^data:image\/png;base64,/)
+        expect(qrDataUrls[0]).toMatch(/^data:image\/gif;base64,/)
       })
 
       it('should generate chunked QR codes when enabled and JWS is large', async () => {
@@ -1028,7 +1028,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         // All should be valid data URLs
         for (const dataUrl of qrDataUrls) {
-          expect(dataUrl).toMatch(/^data:image\/png;base64,/)
+          expect(dataUrl).toMatch(/^data:image\/gif;base64,/)
         }
       })
 
@@ -1042,21 +1042,127 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       it('should use default configuration values', () => {
         const defaultGenerator = new QRCodeGenerator()
 
-        expect(defaultGenerator.config.errorCorrectionLevel).toBe('L')
         expect(defaultGenerator.config.maxSingleQRSize).toBe(1195)
         expect(defaultGenerator.config.enableChunking).toBe(false)
+        // errorCorrectionLevel and scale are now only in encodeOptions
       })
 
       it('should respect custom configuration values', () => {
         const customGenerator = new QRCodeGenerator({
-          errorCorrectionLevel: 'H',
           maxSingleQRSize: 2000,
           enableChunking: true,
+          encodeOptions: {
+            ecc: 'high',
+            scale: 8,
+          },
         })
 
-        expect(customGenerator.config.errorCorrectionLevel).toBe('H')
         expect(customGenerator.config.maxSingleQRSize).toBe(2000)
         expect(customGenerator.config.enableChunking).toBe(true)
+        expect(customGenerator.config.encodeOptions?.ecc).toBe('high')
+        expect(customGenerator.config.encodeOptions?.scale).toBe(8)
+      })
+
+      it('should accept custom encodeOptions and merge them with SMART Health Cards spec defaults', () => {
+        const customGenerator = new QRCodeGenerator({
+          encodeOptions: {
+            ecc: 'medium',
+            scale: 2,
+            border: 3,
+            mask: 2,
+            version: 10,
+          },
+        })
+
+        expect(customGenerator.config.encodeOptions).toEqual({
+          ecc: 'medium',
+          scale: 2,
+          border: 3,
+          mask: 2,
+          version: 10,
+        })
+
+        // Test that buildEncodeOptions merges correctly with SMART Health Cards spec defaults
+        const buildEncodeOptions = (customGenerator as any).buildEncodeOptions.bind(customGenerator)
+        const mergedOptions = buildEncodeOptions()
+
+        expect(mergedOptions).toEqual({
+          ecc: 'medium', // From encodeOptions, overrides default 'low'
+          scale: 2, // From encodeOptions, overrides default 4
+          border: 3, // From encodeOptions, overrides default 1
+          mask: 2, // From encodeOptions only
+          version: 10, // From encodeOptions only
+          // encoding is not set by default - qr library auto-selects optimal encoding
+        })
+      })
+
+      it('should use SMART Health Cards specification defaults', () => {
+        const defaultGenerator = new QRCodeGenerator()
+
+        // Test that buildEncodeOptions uses SMART Health Cards spec defaults
+        const buildEncodeOptions = (defaultGenerator as any).buildEncodeOptions.bind(
+          defaultGenerator
+        )
+        const mergedOptions = buildEncodeOptions()
+
+        expect(mergedOptions).toEqual({
+          ecc: 'low', // Default error correction level
+          scale: 4, // Default scale
+          border: 1, // Default border
+          // encoding and version are not set by default - qr library auto-selects optimal settings
+        })
+      })
+
+      it('should generate QR codes with custom encodeOptions applied', async () => {
+        // Create a mock just for this test
+        const mockEncodeQR = vi.fn()
+
+        // Create a simple fake GIF byte array (minimal GIF header + data)
+        const fakeGifBytes = new Uint8Array([])
+
+        mockEncodeQR.mockReturnValue(fakeGifBytes)
+
+        // Mock the qr module for this test only
+        vi.doMock('qr', () => ({
+          default: mockEncodeQR,
+        }))
+
+        // Use a simple test string
+        const simpleJWS = 'header.payload.signature'
+
+        const customGenerator = new QRCodeGenerator({
+          encodeOptions: {
+            ecc: 'high', // Custom error correction level
+            scale: 6, // Custom scale
+            border: 0, // No border
+            version: 5, // Additional option
+          },
+        })
+
+        const qrDataUrls = await customGenerator.generateQR(simpleJWS)
+
+        // Verify the mock was called with correct parameters
+        // The JWS gets encoded to numeric format per SMART Health Cards spec
+        expect(mockEncodeQR).toHaveBeenCalledWith(
+          'shc:/595652555669016752766366525501706058655271726956', // 'header.payload.signature' encoded to numeric
+          'gif',
+          {
+            ecc: 'high', // From encodeOptions
+            scale: 6, // From encodeOptions
+            border: 0, // From encodeOptions
+            version: 5, // From encodeOptions
+            // encoding is not set - qr library auto-selects optimal encoding for "shc:/" + numeric data
+          }
+        )
+
+        // Verify the result
+        expect(qrDataUrls).toBeDefined()
+        expect(Array.isArray(qrDataUrls)).toBe(true)
+        expect(qrDataUrls).toHaveLength(1)
+        expect(qrDataUrls[0]).toMatch(/^data:image\/gif;base64,/)
+
+        // Clean up the mock for this test
+        vi.doUnmock('qr')
       })
     })
 

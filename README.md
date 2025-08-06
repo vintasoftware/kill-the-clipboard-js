@@ -26,16 +26,17 @@ This aligns with the [CMS Interoperability Framework](https://www.cms.gov/health
 
 ✅ **Production Ready**
 - TypeScript support with full type definitions
-- Comprehensive test suite (81 tests)
+- Comprehensive test suite (120 tests)
 - Proper error handling hierarchy  
 - Built for Node.js and browser environments
 - Web-compatible file operations
 
 ✅ **QR Code Support**
 - QR code generation with `shc:/` prefix and numeric encoding
+- SMART Health Cards specification compliant (V22 QR codes recommended)
 - Single QR mode (primary) and chunked QR support (compatibility)
 - Complete QR code scanning and reconstruction
-- Visual QR code testing and validation
+- Flexible QR encoding options with intelligent defaults
 
 🔄 **Coming Soon**
 - DEFLATE compression for payload optimization
@@ -154,9 +155,13 @@ const verified = await jwsProcessor.verify(jws, publicKey);
 
 // Generate QR codes
 const qrGenerator = new QRCodeGenerator({
-  errorCorrectionLevel: 'L',
   maxSingleQRSize: 1195,
-  enableChunking: false // Use single QR mode (recommended)
+  enableChunking: false, // Use single QR mode (recommended)
+  encodeOptions: {
+    ecc: 'low', // Error correction level (low, medium, quartile, high)
+    scale: 4,   // QR code scale factor
+    border: 1   // Border size
+  }
 });
 
 const qrDataUrls = await qrGenerator.generateQR(jws);
@@ -307,7 +312,21 @@ Handles JWT/JWS signing and verification with ES256 algorithm.
 
 ### `QRCodeGenerator`
 
-Generates and scans QR codes for SMART Health Cards with proper numeric encoding.
+Generates and scans QR codes for SMART Health Cards with proper numeric encoding and SMART Health Cards specification compliance.
+
+#### Configuration Options
+
+- `maxSingleQRSize?: number` - Maximum size for single QR code (default: 1195 per SMART Health Cards spec)
+- `enableChunking?: boolean` - Whether to support multi-chunk QR codes (deprecated per SMART Health Cards spec)
+- `encodeOptions?: QREncodeOptions` - Options passed to the QR encoder:
+  - `ecc?: 'low' | 'medium' | 'quartile' | 'high'` - Error correction level (default: 'low')
+  - `scale?: number` - QR code scale factor (default: 4)  
+  - `border?: number` - Border size (default: 1)
+  - `version?: number` - QR version 1-40 (auto-selected by default per SMART Health Cards spec)
+  - `encoding?: 'numeric' | 'alphanumeric' | 'byte' | 'kanji' | 'eci'` - Auto-selected by default
+  - `mask?: number` - Mask pattern 0-7
+
+#### Methods
 
 - `generateQR(jws: string): Promise<string[]>` - Generates QR code data URLs
 - `scanQR(qrCodeData: string[]): Promise<string>` - Reconstructs JWS from QR data
