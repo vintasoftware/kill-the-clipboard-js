@@ -276,7 +276,7 @@ export class SmartHealthCard {
   private async compressJWS(jws: string): Promise<string> {
     try {
       // Import fflate dynamically for web compatibility
-      const { deflateSync } = await import('fflate')
+      const { deflate } = await import('fflate')
 
       // Split JWS into header, payload, signature
       const parts = jws.split('.')
@@ -286,7 +286,12 @@ export class SmartHealthCard {
 
       // Compress the payload using DEFLATE
       const payloadBytes = new TextEncoder().encode(parts[1])
-      const compressedPayload = deflateSync(payloadBytes)
+      const compressedPayload = await new Promise<Uint8Array>((resolve, reject) => {
+        deflate(payloadBytes, (err, data) => {
+          if (err) reject(err)
+          else resolve(data)
+        })
+      })
 
       // Base64url encode the compressed payload
       const compressedPayloadB64 = this.base64urlEncode(compressedPayload)
@@ -335,11 +340,16 @@ export class SmartHealthCard {
       }
 
       // Import fflate dynamically for web compatibility
-      const { inflateSync } = await import('fflate')
+      const { inflate } = await import('fflate')
 
       // Decompress the payload using DEFLATE
       const compressedPayload = this.base64urlDecode(parts[1])
-      const decompressedPayload = inflateSync(compressedPayload)
+      const decompressedPayload = await new Promise<Uint8Array>((resolve, reject) => {
+        inflate(compressedPayload, (err, data) => {
+          if (err) reject(err)
+          else resolve(data)
+        })
+      })
 
       // Base64url encode the decompressed payload
       const decompressedPayloadB64 = this.base64urlEncode(decompressedPayload)
