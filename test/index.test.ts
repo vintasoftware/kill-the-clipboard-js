@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noExplicitAny: The test needs to use `any` to check validation errors
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   type FhirBundle,
@@ -52,7 +53,7 @@ const createValidFhirBundle = (): FhirBundle => ({
   ],
 })
 
-const createInvalidBundle = (): any => ({
+const createInvalidBundle = (): object => ({
   resourceType: 'Patient', // Wrong resource type
   id: '123',
 })
@@ -77,7 +78,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should set default Bundle.type to "collection"', () => {
         const bundle = createValidFhirBundle()
-        delete (bundle as any).type
+        delete (bundle as unknown as Record<string, unknown>).type
 
         const result = processor.process(bundle)
         expect(result.type).toBe('collection')
@@ -100,8 +101,8 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.process(null as any)).toThrow(FhirValidationError)
-        expect(() => processor.process(null as any)).toThrow(
+        expect(() => processor.process(null as unknown as object)).toThrow(FhirValidationError)
+        expect(() => processor.process(null as unknown as object)).toThrow(
           'Invalid bundle: must be a FHIR Bundle resource'
         )
       })
@@ -123,8 +124,10 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.validate(null as any)).toThrow(FhirValidationError)
-        expect(() => processor.validate(null as any)).toThrow('Bundle cannot be null or undefined')
+        expect(() => processor.validate(null as unknown as object)).toThrow(FhirValidationError)
+        expect(() => processor.validate(null as unknown as object)).toThrow(
+          'Bundle cannot be null or undefined'
+        )
       })
 
       it('should throw FhirValidationError for wrong resource type', () => {
@@ -136,7 +139,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should throw FhirValidationError for invalid Bundle.type', () => {
         const bundle = createValidFhirBundle()
-        bundle.type = 'invalid-type' as any
+        bundle.type = 'invalid-type'
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
         expect(() => processor.validate(bundle)).toThrow('Invalid bundle type: invalid-type')
@@ -154,14 +157,14 @@ describe('SMART Health Cards Library', () => {
 
         for (const type of validTypes) {
           const bundle = createValidFhirBundle()
-          bundle.type = type as any
+          bundle.type = type as any // @ts-ignore
           expect(processor.validate(bundle)).toBe(true)
         }
       })
 
       it('should throw FhirValidationError for non-array entry', () => {
         const bundle = createValidFhirBundle()
-        bundle.entry = 'not-an-array' as any
+        bundle.entry = 'not-an-array' as any // @ts-ignore
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
         expect(() => processor.validate(bundle)).toThrow('Bundle.entry must be an array')
@@ -169,7 +172,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should throw FhirValidationError for entry without resource', () => {
         const bundle = createValidFhirBundle()
-        bundle.entry = [{ fullUrl: 'test' }] as any
+        bundle.entry = [{ fullUrl: 'test' }] as any // @ts-ignore
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
         expect(() => processor.validate(bundle)).toThrow('Bundle.entry[0] must contain a resource')
@@ -177,7 +180,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should throw FhirValidationError for resource without resourceType', () => {
         const bundle = createValidFhirBundle()
-        bundle.entry = [{ resource: { id: '123' } }] as any
+        bundle.entry = [{ resource: { id: '123' } }] as any // @ts-ignore
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
         expect(() => processor.validate(bundle)).toThrow(
@@ -232,7 +235,7 @@ describe('SMART Health Cards Library', () => {
         expect(context).toHaveLength(2)
         expect(context[0]).toBe('https://www.w3.org/2018/credentials/v1')
 
-        const smartContext = context[1] as any
+        const smartContext = context[1]
         expect(smartContext['@vocab']).toBe('https://smarthealth.cards#')
         expect(smartContext.fhirBundle['@id']).toBe('https://smarthealth.cards#fhirBundle')
         expect(smartContext.fhirBundle['@type']).toBe('@json')
@@ -265,8 +268,10 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.create(null as any)).toThrow(FhirValidationError)
-        expect(() => processor.create(null as any)).toThrow('Invalid FHIR Bundle provided')
+        expect(() => processor.create(null as unknown as object)).toThrow(FhirValidationError)
+        expect(() => processor.create(null as unknown as object)).toThrow(
+          'Invalid FHIR Bundle provided'
+        )
       })
 
       it('should throw FhirValidationError for invalid bundle', () => {
@@ -289,12 +294,14 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null VC', () => {
-        expect(() => processor.validate(null as any)).toThrow(FhirValidationError)
-        expect(() => processor.validate(null as any)).toThrow('Invalid VC: missing vc property')
+        expect(() => processor.validate(null as unknown as object)).toThrow(FhirValidationError)
+        expect(() => processor.validate(null as unknown as object)).toThrow(
+          'Invalid VC: missing vc property'
+        )
       })
 
       it('should throw FhirValidationError for VC without vc property', () => {
-        const invalidVC = {} as any
+        const invalidVC = {} // @ts-ignore
 
         expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
         expect(() => processor.validate(invalidVC)).toThrow('Invalid VC: missing vc property')
@@ -303,7 +310,7 @@ describe('SMART Health Cards Library', () => {
       describe('@context validation', () => {
         it('should throw error for non-array @context', () => {
           const invalidVC = { ...validVC }
-          invalidVC.vc['@context'] = 'not-an-array' as any
+          invalidVC.vc['@context'] = 'not-an-array' as any // @ts-ignore
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow('VC @context must be an array')
@@ -341,7 +348,7 @@ describe('SMART Health Cards Library', () => {
 
         it('should throw error for incorrect @vocab', () => {
           const invalidVC = { ...validVC }
-          const context = invalidVC.vc['@context'][1] as any
+          const context = invalidVC.vc['@context'][1] as any // @ts-ignore
           context['@vocab'] = 'https://wrong-vocab.org'
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
@@ -352,7 +359,7 @@ describe('SMART Health Cards Library', () => {
 
         it('should throw error for incorrect fhirBundle definition', () => {
           const invalidVC = { ...validVC }
-          const context = invalidVC.vc['@context'][1] as any
+          const context = invalidVC.vc['@context'][1] as any // @ts-ignore
           context.fhirBundle = { '@id': 'wrong-id', '@type': '@json' }
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
@@ -365,7 +372,7 @@ describe('SMART Health Cards Library', () => {
       describe('type validation', () => {
         it('should throw error for non-array type', () => {
           const invalidVC = { ...validVC }
-          invalidVC.vc.type = 'not-an-array' as any
+          invalidVC.vc.type = 'not-an-array' as any // @ts-ignore
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow('VC type must be an array')
@@ -405,7 +412,7 @@ describe('SMART Health Cards Library', () => {
       describe('credentialSubject validation', () => {
         it('should throw error for missing credentialSubject', () => {
           const invalidVC = { ...validVC }
-          delete (invalidVC.vc as any).credentialSubject
+          delete (invalidVC.vc as Record<string, unknown>).credentialSubject
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow('VC credentialSubject is required')
@@ -413,7 +420,7 @@ describe('SMART Health Cards Library', () => {
 
         it('should throw error for missing fhirVersion', () => {
           const invalidVC = { ...validVC }
-          delete (invalidVC.vc.credentialSubject as any).fhirVersion
+          delete (invalidVC.vc.credentialSubject as Record<string, unknown>).fhirVersion
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow(
@@ -443,7 +450,7 @@ describe('SMART Health Cards Library', () => {
 
         it('should throw error for missing fhirBundle', () => {
           const invalidVC = { ...validVC }
-          delete (invalidVC.vc.credentialSubject as any).fhirBundle
+          delete (invalidVC.vc.credentialSubject as Record<string, unknown>).fhirBundle
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow(
@@ -455,7 +462,7 @@ describe('SMART Health Cards Library', () => {
           const invalidVC = { ...validVC }
           invalidVC.vc.credentialSubject.fhirBundle = {
             resourceType: 'Patient',
-          } as any
+          } as any // @ts-ignore
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow(
@@ -526,7 +533,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
           // Missing required 'iss' field
           nbf: Math.floor(Date.now() / 1000),
           vc: validVC.vc,
-        } as any
+        } as any // @ts-ignore
 
         await expect(
           processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
@@ -535,16 +542,16 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
       it('should throw JWSError for null payload', async () => {
         await expect(
-          processor.sign(null as any, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(null as unknown as object, testPrivateKeyPKCS8, 'test-key-id')
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(null as any, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(null as unknown as object, testPrivateKeyPKCS8, 'test-key-id')
         ).rejects.toThrow('Invalid JWT payload: must be an object')
       })
 
       it('should throw JWSError for missing issuer', async () => {
         const invalidPayload = { ...validJWTPayload }
-        delete (invalidPayload as any).iss
+        delete (invalidPayload as Record<string, unknown>).iss
 
         await expect(
           processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
@@ -556,7 +563,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
       it('should throw JWSError for missing nbf', async () => {
         const invalidPayload = { ...validJWTPayload }
-        delete (invalidPayload as any).nbf
+        delete (invalidPayload as Record<string, unknown>).nbf
 
         await expect(
           processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
@@ -617,8 +624,12 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
 
       it('should throw JWSError for non-string JWS', async () => {
-        await expect(processor.verify(null as any, testPublicKeySPKI)).rejects.toThrow(JWSError)
-        await expect(processor.verify(123 as any, testPublicKeySPKI)).rejects.toThrow(JWSError)
+        await expect(
+          processor.verify(null as unknown as string, testPublicKeySPKI)
+        ).rejects.toThrow(JWSError)
+        await expect(processor.verify(123 as unknown as string, testPublicKeySPKI)).rejects.toThrow(
+          JWSError
+        )
       })
 
       it('should throw JWSError for wrong signature', async () => {
@@ -691,10 +702,18 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         for (const testCase of testCases) {
           await expect(
-            processor.sign(testCase.payload as any, testPrivateKeyPKCS8, 'test-key-id')
+            processor.sign(
+              testCase.payload as any, // @ts-ignore
+              testPrivateKeyPKCS8,
+              'test-key-id'
+            )
           ).rejects.toThrow(JWSError)
           await expect(
-            processor.sign(testCase.payload as any, testPrivateKeyPKCS8, 'test-key-id')
+            processor.sign(
+              testCase.payload as any, // @ts-ignore
+              testPrivateKeyPKCS8,
+              'test-key-id'
+            )
           ).rejects.toThrow(testCase.error)
         }
       })
@@ -768,7 +787,9 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
 
       it('should throw error for null bundle', async () => {
-        await expect(smartHealthCard.create(null as any)).rejects.toThrow(SmartHealthCardError)
+        await expect(smartHealthCard.create(null as unknown as object)).rejects.toThrow(
+          SmartHealthCardError
+        )
       })
 
       it('should include correct issuer in JWT payload', async () => {
@@ -832,7 +853,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const healthCard = await smartHealthCard.create(validBundle)
 
         // Tamper with the health card by changing a character
-        const tamperedCard = healthCard.slice(0, -5) + 'XXXXX'
+        const tamperedCard = `${healthCard.slice(0, -5)}XXXXX`
 
         await expect(smartHealthCard.verify(tamperedCard)).rejects.toThrow(SmartHealthCardError)
       })
@@ -1014,9 +1035,9 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       it('should use default configuration values', () => {
         const defaultGenerator = new QRCodeGenerator()
 
-        expect(defaultGenerator['config'].errorCorrectionLevel).toBe('L')
-        expect(defaultGenerator['config'].maxSingleQRSize).toBe(1195)
-        expect(defaultGenerator['config'].enableChunking).toBe(false)
+        expect(defaultGenerator.config.errorCorrectionLevel).toBe('L')
+        expect(defaultGenerator.config.maxSingleQRSize).toBe(1195)
+        expect(defaultGenerator.config.enableChunking).toBe(false)
       })
 
       it('should respect custom configuration values', () => {
@@ -1026,9 +1047,9 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
           enableChunking: true,
         })
 
-        expect(customGenerator['config'].errorCorrectionLevel).toBe('H')
-        expect(customGenerator['config'].maxSingleQRSize).toBe(2000)
-        expect(customGenerator['config'].enableChunking).toBe(true)
+        expect(customGenerator.config.errorCorrectionLevel).toBe('H')
+        expect(customGenerator.config.maxSingleQRSize).toBe(2000)
+        expect(customGenerator.config.enableChunking).toBe(true)
       })
     })
 
@@ -1040,7 +1061,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         // Extract the numeric data from the QR code content manually
         // Since we can't actually scan an image in tests, we'll simulate the process
-        const numericData = qrGenerator['encodeJWSToNumeric'](validJWS)
+        const numericData = qrGenerator.encodeJWSToNumeric(validJWS)
         const qrContent = `shc:/${numericData}`
 
         // Decode back to JWS
@@ -1056,7 +1077,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         })
 
         // Simulate chunked QR content
-        const numericData = chunkedGenerator['encodeJWSToNumeric'](validJWS)
+        const numericData = chunkedGenerator.encodeJWSToNumeric(validJWS)
         const chunkSize = 80 // Smaller than maxSingleQRSize minus header
         const chunks: string[] = []
 
@@ -1137,8 +1158,8 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       it('should correctly encode and decode all valid base64url characters', () => {
         const base64urlChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_='
 
-        const encoded = qrGenerator['encodeJWSToNumeric'](base64urlChars)
-        const decoded = qrGenerator['decodeNumericToJWS'](encoded)
+        const encoded = qrGenerator.encodeJWSToNumeric(base64urlChars)
+        const decoded = qrGenerator.decodeNumericToJWS(encoded)
 
         expect(decoded).toBe(base64urlChars)
       })
@@ -1155,7 +1176,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         ]
 
         for (const testCase of testCases) {
-          const encoded = qrGenerator['encodeJWSToNumeric'](testCase.char)
+          const encoded = qrGenerator.encodeJWSToNumeric(testCase.char)
           expect(encoded).toBe(testCase.expected)
         }
       })
@@ -1164,8 +1185,8 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         // Use part of a real JWS header
         const jwtHeader = 'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9'
 
-        const encoded = qrGenerator['encodeJWSToNumeric'](jwtHeader)
-        const decoded = qrGenerator['decodeNumericToJWS'](encoded)
+        const encoded = qrGenerator.encodeJWSToNumeric(jwtHeader)
+        const decoded = qrGenerator.decodeNumericToJWS(encoded)
 
         expect(decoded).toBe(jwtHeader)
       })
@@ -1178,7 +1199,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(qrDataUrls).toHaveLength(1)
 
         // Simulate scanning process (extract content from QR)
-        const numericData = qrGenerator['encodeJWSToNumeric'](validJWS)
+        const numericData = qrGenerator.encodeJWSToNumeric(validJWS)
         const qrContent = `shc:/${numericData}`
 
         // Scan and decode
@@ -1211,7 +1232,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(qrDataUrls.length).toBeGreaterThan(1)
 
         // Simulate chunked scanning
-        const numericData = chunkedGenerator['encodeJWSToNumeric'](validJWS)
+        const numericData = chunkedGenerator.encodeJWSToNumeric(validJWS)
         const chunkSize = 80
         const chunks: string[] = []
 
@@ -1227,6 +1248,246 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const scannedJWS = await chunkedGenerator.scanQR(qrContents)
         expect(scannedJWS).toBe(validJWS)
       })
+    })
+  })
+
+  describe('Compression Features', () => {
+    let smartHealthCard: SmartHealthCard
+    let validBundle: FhirBundle
+    let config: SmartHealthCardConfig
+
+    // Test key pairs for ES256 (these are for testing only - never use in production)
+    const testPrivateKeyPKCS8 = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgF+y5n2Nu3g2hwBj+
+uVYulsHxb7VQg+0yIHMBgD0dLwyhRANCAAScrWM5QO21TdhCZpZhRwlD8LzgTYkR
+CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
+-----END PRIVATE KEY-----`
+
+    const testPublicKeySPKI = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
+EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
+-----END PUBLIC KEY-----`
+
+    beforeEach(() => {
+      validBundle = createValidFhirBundle()
+      config = {
+        issuer: 'https://example.com/issuer',
+        privateKey: testPrivateKeyPKCS8,
+        publicKey: testPublicKeySPKI,
+        keyId: 'test-key-id',
+        enableCompression: true, // Enable compression for these tests
+      }
+      smartHealthCard = new SmartHealthCard(config)
+    })
+
+    it('should create compressed SMART Health Card', async () => {
+      const healthCard = await smartHealthCard.create(validBundle)
+
+      expect(healthCard).toBeDefined()
+      expect(typeof healthCard).toBe('string')
+
+      // Should be a valid JWS format (3 parts separated by dots)
+      const parts = healthCard.split('.')
+      expect(parts).toHaveLength(3)
+
+      // Decode header to check for compression
+      const jwsProcessor = new JWSProcessor()
+      const decoded = await jwsProcessor.decode(healthCard)
+      expect(decoded.header.zip).toBe('DEF')
+    })
+
+    it('should verify compressed SMART Health Card', async () => {
+      const healthCard = await smartHealthCard.create(validBundle)
+      const verifiedVC = await smartHealthCard.verify(healthCard)
+
+      expect(verifiedVC).toBeDefined()
+      expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(validBundle)
+    })
+
+    it('should handle round-trip compression and decompression', async () => {
+      const healthCard = await smartHealthCard.create(validBundle)
+      const verifiedVC = await smartHealthCard.verify(healthCard)
+
+      // Data should match original
+      expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(validBundle)
+    })
+  })
+
+  describe('File Format Features', () => {
+    let smartHealthCard: SmartHealthCard
+    let validBundle: FhirBundle
+
+    // Test key pairs for ES256 (these are for testing only - never use in production)
+    const testPrivateKeyPKCS8 = `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgF+y5n2Nu3g2hwBj+
+uVYulsHxb7VQg+0yIHMBgD0dLwyhRANCAAScrWM5QO21TdhCZpZhRwlD8LzgTYkR
+CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
+-----END PRIVATE KEY-----`
+
+    const testPublicKeySPKI = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
+EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
+-----END PUBLIC KEY-----`
+
+    beforeEach(() => {
+      validBundle = createValidFhirBundle()
+      const config: SmartHealthCardConfig = {
+        issuer: 'https://example.com/issuer',
+        privateKey: testPrivateKeyPKCS8,
+        publicKey: testPublicKeySPKI,
+        keyId: 'test-key-id',
+      }
+      smartHealthCard = new SmartHealthCard(config)
+    })
+
+    it('should create file with JSON wrapper format', async () => {
+      const fileContent = await smartHealthCard.createFile(validBundle)
+
+      expect(fileContent).toBeDefined()
+      expect(typeof fileContent).toBe('string')
+
+      // Should be valid JSON
+      const parsed = JSON.parse(fileContent)
+      expect(parsed).toHaveProperty('verifiableCredential')
+      expect(Array.isArray(parsed.verifiableCredential)).toBe(true)
+      expect(parsed.verifiableCredential).toHaveLength(1)
+
+      // The JWS should be valid
+      const jws = parsed.verifiableCredential[0]
+      expect(typeof jws).toBe('string')
+      expect(jws.split('.')).toHaveLength(3)
+    })
+
+    it('should verify file with JSON wrapper format', async () => {
+      const fileContent = await smartHealthCard.createFile(validBundle)
+      const verifiedVC = await smartHealthCard.verifyFile(fileContent)
+
+      expect(verifiedVC).toBeDefined()
+      expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(validBundle)
+    })
+
+    it('should throw error for empty verifiableCredential array', async () => {
+      const invalidFileContent = JSON.stringify({
+        verifiableCredential: [],
+      })
+
+      await expect(smartHealthCard.verifyFile(invalidFileContent)).rejects.toThrow(
+        'File contains empty verifiableCredential array'
+      )
+    })
+
+    it('should throw error for missing verifiableCredential property', async () => {
+      const invalidFileContent = JSON.stringify({
+        somethingElse: ['jws'],
+      })
+
+      await expect(smartHealthCard.verifyFile(invalidFileContent)).rejects.toThrow(
+        'File does not contain expected verifiableCredential array'
+      )
+    })
+  })
+
+  describe('QR Optimization Features', () => {
+    let fhirProcessor: FhirBundleProcessor
+    let validBundle: FhirBundle
+
+    beforeEach(() => {
+      fhirProcessor = new FhirBundleProcessor()
+      validBundle = createValidFhirBundle()
+    })
+
+    it('should optimize FHIR Bundle for QR codes', () => {
+      const optimizedBundle = fhirProcessor.processForQR(validBundle)
+
+      expect(optimizedBundle).toBeDefined()
+      expect(optimizedBundle.resourceType).toBe('Bundle')
+      expect(optimizedBundle.type).toBe('collection')
+
+      // Check that fullUrl was converted to short resource references
+      if (optimizedBundle.entry) {
+        optimizedBundle.entry.forEach((entry, index) => {
+          if (entry.fullUrl) {
+            expect(entry.fullUrl).toBe(`resource:${index}`)
+          }
+        })
+      }
+    })
+
+    it('should create SmartHealthCard with QR optimization enabled', async () => {
+      const config: SmartHealthCardConfig = {
+        issuer: 'https://example.com/issuer',
+        privateKey: `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgF+y5n2Nu3g2hwBj+
+uVYulsHxb7VQg+0yIHMBgD0dLwyhRANCAAScrWM5QO21TdhCZpZhRwlD8LzgTYkR
+CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
+-----END PRIVATE KEY-----`,
+        publicKey: `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
+EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
+-----END PUBLIC KEY-----`,
+        keyId: 'test-key-id',
+        enableQROptimization: true,
+      }
+
+      const smartHealthCard = new SmartHealthCard(config)
+      const healthCard = await smartHealthCard.create(validBundle)
+
+      expect(healthCard).toBeDefined()
+      expect(typeof healthCard).toBe('string')
+
+      // Verify the optimized bundle can still be verified
+      const verifiedVC = await smartHealthCard.verify(healthCard)
+      expect(verifiedVC).toBeDefined()
+
+      // Check that optimization was applied by looking at the bundle structure
+      const bundle = verifiedVC.vc.credentialSubject.fhirBundle
+      if (bundle.entry) {
+        bundle.entry.forEach((entry, index) => {
+          if (entry.fullUrl) {
+            expect(entry.fullUrl).toBe(`resource:${index}`)
+          }
+        })
+      }
+    })
+
+    it('should preserve bundle data integrity after optimization', async () => {
+      const config: SmartHealthCardConfig = {
+        issuer: 'https://example.com/issuer',
+        privateKey: `-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgF+y5n2Nu3g2hwBj+
+uVYulsHxb7VQg+0yIHMBgD0dLwyhRANCAAScrWM5QO21TdhCZpZhRwlD8LzgTYkR
+CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
+-----END PRIVATE KEY-----`,
+        publicKey: `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
+EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
+-----END PUBLIC KEY-----`,
+        keyId: 'test-key-id',
+        enableQROptimization: true,
+      }
+
+      const smartHealthCard = new SmartHealthCard(config)
+      const healthCard = await smartHealthCard.create(validBundle)
+      const verifiedVC = await smartHealthCard.verify(healthCard)
+
+      // Essential data should be preserved
+      const optimizedBundle = verifiedVC.vc.credentialSubject.fhirBundle
+      expect(optimizedBundle.resourceType).toBe('Bundle')
+      expect(optimizedBundle.type).toBe('collection')
+      expect(optimizedBundle.entry).toHaveLength(validBundle.entry?.length || 0)
+
+      // Resources should still have their core data
+      if (optimizedBundle.entry && validBundle.entry) {
+        for (let i = 0; i < optimizedBundle.entry.length; i++) {
+          const optimizedResource = optimizedBundle.entry[i].resource
+          const originalResource = validBundle.entry[i].resource
+
+          if (optimizedResource && originalResource) {
+            expect(optimizedResource.resourceType).toBe(originalResource.resourceType)
+            // Other essential fields should be preserved (exact comparison depends on optimization rules)
+          }
+        }
+      }
     })
   })
 

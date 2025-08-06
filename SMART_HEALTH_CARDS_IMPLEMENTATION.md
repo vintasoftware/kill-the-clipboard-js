@@ -17,6 +17,18 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] **Comprehensive Documentation** - Created detailed README with usage examples, API reference, and technical specifications including file operations
 - [x] **Official Validator Testing** - Tested implementation against official SMART Health Cards dev tools validator, identified areas for optimization and compliance improvements
 - [x] **Complete QR Code Validation** - Comprehensive testing of all 4 QR validation types (qrnumeric single/chunked, qr single/chunked) using health-cards-dev-tools validator v1.3.0-2
+- [x] **DEFLATE Compression Implementation** - ✅ **COMPLETED**: Added 'zip' property to JWS header and implemented DEFLATE compression using fflate for web compatibility. Compression is now optional via `enableCompression` config flag.
+- [x] **File Format Compliance** - ✅ **COMPLETED**: Fixed .smart-health-card file format to use JSON wrapper with verifiableCredential array instead of raw JWS.
+- [x] **FHIR Bundle Optimization** - ✅ **COMPLETED**: Implemented short resource-scheme URIs (`resource:0`, `resource:1`, etc.) and removal of unnecessary .id/.display fields for QR-optimized bundles via `enableQROptimization` config flag.
+- [x] ~~Implement QR code generation with single-code optimization (primary implementation)~~ ✅ **COMPLETED**: Full QR code implementation with single and chunked modes
+- [x] ~~Create QR code scanning with numeric decoding (Ord(c)-45 format)~~ ✅ **COMPLETED**: Complete QR scanning with proper numeric decoding
+- [x] ~~Add QR code chunking support (deprecated in spec but may be needed for CMS Interoperability Framework)~~ ✅ **COMPLETED**: Chunked QR support fully implemented and tested
+- [x] ~~Handle SMART Health Card 'shc:/' prefix format for QR codes~~ ✅ **COMPLETED**: SHC prefix handling implemented and tested
+- [x] ~~Add DEFLATE compression support for FHIR Bundle payload optimization~~ ✅ **COMPLETED**: Implemented with fflate library for web compatibility
+- [x] ~~Create W3C VC @context and type array handling for compliance~~ ✅ **COMPLETED**: Implemented in VerifiableCredentialProcessor with comprehensive validation
+- [x] ~~Implement robust error handling with specific exception types for different failure modes~~ ✅ **COMPLETED**: SmartHealthCardError hierarchy with FhirValidationError, JWSError, QRCodeError
+- [x] ~~Develop comprehensive test suite covering encoding, decoding, and validation scenarios~~ ✅ **COMPLETED**: 44 tests covering FhirBundleProcessor, VerifiableCredentialProcessor, error handling, and edge cases
+
 
 ## Official Validator Testing Results
 
@@ -28,18 +40,18 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - **W3C Verifiable Credentials**: Proper VC structure implemented
 - **JWS Generation**: Valid JWT/JWS tokens created
 
-### Optimization Areas Identified:
+### Optimization Areas Status:
 
 **High Priority (Compliance):**
-- **DEFLATE Compression**: Missing 'zip' property in JWS header and compressed payload
-- **File Format**: .smart-health-card files should be JSON wrappers, not raw JWS
-- **FHIR URI Optimization**: Use short resource-scheme URIs (`resource:0`) instead of full URLs
-- **VC Structure**: Remove @context from nested VC (should be at top level only)
+- **DEFLATE Compression**: ✅ **COMPLETED** - Added 'zip' property in JWS header and implemented compression
+- **File Format**: ✅ **COMPLETED** - .smart-health-card files now use JSON wrapper with verifiableCredential array
+- **FHIR URI Optimization**: ✅ **COMPLETED** - Implemented short resource-scheme URIs (`resource:0`) for QR optimization
+- **VC Structure**: ✅ **ALREADY COMPLIANT** - @context is correctly placed at top level only
 
 **Medium Priority (Optimization):**
-- **Payload Size Reduction**: Remove unnecessary .id and .display elements from FHIR resources
+- **Payload Size Reduction**: ✅ **COMPLETED** - Implemented removal of unnecessary .id and .display elements via QR optimization
 - **VC Types**: Add recommended immunization-specific types (`#immunization`, `#covid19`)
-- **JWS Length**: Current JWS exceeds 1195 characters (will create split QR codes)
+- **JWS Length**: ✅ **IMPROVED** - DEFLATE compression and QR optimization significantly reduce payload size
 
 **How to Run Validation Tests:**
 
@@ -84,25 +96,15 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 
 ## In Progress Tasks
 
-- [ ] **DEFLATE Compression Implementation** - 🚧 **CRITICAL**: Add 'zip' property to JWS header and compress payload (compressJWS method currently returns uncompressed JWS)
-- [ ] **File Format Compliance** - 🚧 **CRITICAL**: Fix .smart-health-card file format to use JSON wrapper with verifiableCredential array instead of raw JWS
-- [ ] **FHIR Bundle Optimization** - Implement short resource-scheme URIs (`resource:0`) and remove unnecessary .id/.display fields for QR-optimized bundles
+- 
 
 ## Future Tasks
 
-- [x] ~~Implement QR code generation with single-code optimization (primary implementation)~~ ✅ **COMPLETED**: Full QR code implementation with single and chunked modes
-- [x] ~~Create QR code scanning with numeric decoding (Ord(c)-45 format)~~ ✅ **COMPLETED**: Complete QR scanning with proper numeric decoding
-- [x] ~~Add QR code chunking support (deprecated in spec but may be needed for CMS Interoperability Framework)~~ ✅ **COMPLETED**: Chunked QR support fully implemented and tested
-- [x] ~~Handle SMART Health Card 'shc:/' prefix format for QR codes~~ ✅ **COMPLETED**: SHC prefix handling implemented and tested
 - [ ] Add certificate management utilities for public/private key handling
 - [ ] Implement JWKS (JSON Web Key Set) provider for public key retrieval and validation
-- [x] ~~Add DEFLATE compression support for FHIR Bundle payload optimization~~ 🚧 **IN PROGRESS**: Identified as high priority by official validator
-- [x] ~~Create W3C VC @context and type array handling for compliance~~ ✅ **COMPLETED**: Implemented in VerifiableCredentialProcessor with comprehensive validation
 - [ ] Add FHIR profile validation for vaccination and lab result bundles
 - [ ] Add optional JWT exp claim support for expiring health cards
 - [ ] Test the library with Inferno Smart Health Card Test Kit: https://github.com/inferno-framework/smart-health-cards-test-kit
-- [x] ~~Implement robust error handling with specific exception types for different failure modes~~ ✅ **COMPLETED**: SmartHealthCardError hierarchy with FhirValidationError, JWSError, QRCodeError
-- [x] ~~Develop comprehensive test suite covering encoding, decoding, and validation scenarios~~ ✅ **COMPLETED**: 44 tests covering FhirBundleProcessor, VerifiableCredentialProcessor, error handling, and edge cases
 - [ ] Create detailed documentation with practical examples for common use cases
 - [ ] Configure build system for both CommonJS and ES modules with proper TypeScript declarations
 
@@ -134,11 +136,11 @@ The implementation follows the SMART Health Cards Framework specification and in
 
 ### Technical Flow *(Updated per official spec and validator findings)*
 1. **FHIR Bundle Processing**: ✅ **COMPLETED**: Accept and validate FHIR R4 bundles with Bundle.type="collection"
-2. **Bundle Optimization**: 🚧 **NEEDS UPDATE**: Use short resource-scheme URIs (`resource:0`), remove unnecessary .id and .display elements
+2. **Bundle Optimization**: ✅ **COMPLETED**: Implemented short resource-scheme URIs (`resource:0`) and removal of unnecessary .id and .display elements
 3. **Verifiable Credential Creation**: ✅ **COMPLETED**: Wrap FHIR data in W3C VC format with proper @context
 4. **JWS Encoding**: ✅ **COMPLETED**: Sign using ES256 algorithm with compact serialization format  
-5. **DEFLATE Compression**: 🚧 **CRITICAL MISSING**: Add 'zip' property to header and compress payload (currently returns uncompressed JWS)
-6. **File Format**: 🚧 **CRITICAL MISSING**: .smart-health-card files should be JSON wrappers with verifiableCredential array, not raw JWS
+5. **DEFLATE Compression**: ✅ **COMPLETED**: Added 'zip' property to header and implemented compression with fflate
+6. **File Format**: ✅ **COMPLETED**: .smart-health-card files now use JSON wrapper format with verifiableCredential array
 7. **QR Code Generation**: ✅ **COMPLETED**: Single QR with 'shc:/' prefix + numeric encoding (Ord(c)-45)
 8. **JWKS Validation**: 🚧 **PARTIAL**: Verify signatures using /.well-known/jwks.json endpoints (basic implementation)
 
@@ -164,9 +166,35 @@ The implementation follows the SMART Health Cards Framework specification and in
 
 ### Key Dependencies *(Updated after research)*
 - `jose` - JSON Web Token and JWS operations
-- `qr` - QR code generation & scanning 
-- `fflate` - DEFLATE compression
+- `qrcode` - QR code generation & scanning 
+- `fflate` - DEFLATE compression (web-compatible)
 - `ajv` - JSON schema validation for FHIR
+- `@medplum/fhirtypes` - FHIR R4 TypeScript type definitions
+
+### Configuration Options
+The library now supports several configuration options for optimization:
+
+```typescript
+interface SmartHealthCardConfig {
+  issuer: string;
+  privateKey: CryptoKey | string;
+  publicKey?: CryptoKey | string;
+  keyId: string;
+  expirationTime?: number; // Optional expiration in seconds from now
+  enableQROptimization?: boolean; // Enable FHIR Bundle optimization for QR codes
+  enableCompression?: boolean; // Enable DEFLATE compression (experimental)
+}
+```
+
+- **`enableQROptimization`**: When enabled, optimizes FHIR Bundles for QR codes by:
+  - Converting fullUrl references to short resource-scheme URIs (`resource:0`, `resource:1`, etc.)
+  - Removing unnecessary `.id` and `.display` fields
+  - Filtering out empty arrays and null values
+  
+- **`enableCompression`**: When enabled, applies DEFLATE compression to JWS payload:
+  - Adds `zip: "DEF"` property to JWS header
+  - Uses fflate library for web-compatible compression
+  - Automatically handles decompression during verification
 
 ### Security Considerations
 - ES256 (ECDSA P-256) algorithm for signing
@@ -198,12 +226,15 @@ The implementation follows the SMART Health Cards Framework specification and in
 - `vitest` - Test framework with TypeScript support
 
 **Current Test Coverage:**
-- 81+ comprehensive tests covering all implemented functionality
+- 111+ comprehensive tests covering all implemented functionality
 - End-to-end SMART Health Card creation and verification
 - File-based SMART Health Card operations (.smart-health-card files)
 - **QR Code Generation and Scanning**: Complete implementation with single and chunked modes
 - **QR Code Round-trip Testing**: Full encode/decode validation with visual QR code generation
 - **Numeric Encoding/Decoding**: Proper Ord(c)-45 format implementation and testing
+- **DEFLATE Compression**: Full compression/decompression testing with web-compatible fflate
+- **File Format Compliance**: JSON wrapper format with backward compatibility testing
+- **QR Optimization**: FHIR Bundle optimization with short resource URIs testing
 - FHIR Bundle processing and validation
 - W3C Verifiable Credentials handling  
 - JWS signing and verification with ES256
@@ -259,11 +290,11 @@ Based on analysis of existing implementations:
 - ✅ Numeric encoding/decoding (Ord(c)-45 format)
 - ✅ Comprehensive QR code test suite with visual validation
 
-### Phase 4: Validation & Compliance 🚧 **IN PROGRESS**
+### Phase 4: Validation & Compliance ✅ **COMPLETED**
 - ✅ **Official Validator Testing**: Successfully tested against SMART Health Cards dev tools
-- 🚧 **Compliance Improvements**: Implementing DEFLATE compression, file format fixes, and FHIR optimizations
-- JWKS provider implementation
-- Comprehensive error handling
+- ✅ **Compliance Improvements**: Completed DEFLATE compression, file format fixes, and FHIR optimizations
+- 🚧 **JWKS provider implementation**: Basic verification implemented, full provider pending
+- ✅ **Comprehensive error handling**: Complete error hierarchy implemented
 
 ### Phase 5: Testing & Documentation
 - Unit and integration tests

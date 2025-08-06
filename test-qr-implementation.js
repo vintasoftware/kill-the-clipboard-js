@@ -5,10 +5,9 @@
  * Tests both QR generation and the SMART Health Cards validator
  */
 
-import { execSync } from 'child_process'
-import crypto from 'crypto'
-import { existsSync } from 'fs'
-import { mkdir, writeFile } from 'fs/promises'
+import crypto from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { exportPKCS8, exportSPKI } from 'jose'
 import { QRCodeGenerator, SmartHealthCard } from './dist/index.esm.js'
 

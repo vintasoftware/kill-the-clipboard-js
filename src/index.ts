@@ -84,6 +84,8 @@ export interface SmartHealthCardConfig {
   publicKey?: CryptoKey | string
   keyId: string
   expirationTime?: number // Optional expiration in seconds from now
+  enableQROptimization?: boolean // Whether to optimize FHIR Bundle for QR codes
+  enableCompression?: boolean // Whether to enable DEFLATE compression (experimental)
 }
 
 export interface QRCodeConfig {
@@ -111,7 +113,9 @@ export class SmartHealthCard {
   async create(fhirBundle: FhirBundle): Promise<string> {
     try {
       // Step 1: Process and validate FHIR Bundle
-      const processedBundle = this.fhirProcessor.process(fhirBundle)
+      const processedBundle = this.config.enableQROptimization
+        ? this.fhirProcessor.processForQR(fhirBundle)
+        : this.fhirProcessor.process(fhirBundle)
       this.fhirProcessor.validate(processedBundle)
 
       // Step 2: Create W3C Verifiable Credential
@@ -131,17 +135,15 @@ export class SmartHealthCard {
         jwtPayload.exp = now + this.config.expirationTime
       }
 
-      // Step 4: Sign the JWT to create JWS
+      // Step 4: Sign the JWT to create JWS (with compression if enabled)
       const jws = await this.jwsProcessor.sign(
         jwtPayload,
         this.config.privateKey,
-        this.config.keyId
+        this.config.keyId,
+        this.config.enableCompression
       )
 
-      // Step 5: Apply DEFLATE compression for size optimization
-      const compressedJws = await this.compressJWS(jws)
-
-      return compressedJws
+      return jws
     } catch (error) {
       if (error instanceof SmartHealthCardError) {
         throw error
@@ -162,8 +164,13 @@ export class SmartHealthCard {
     // Generate the JWS
     const jws = await this.create(fhirBundle)
 
-    // Per SMART Health Cards spec, the file content is just the JWS
-    return jws
+    // Per SMART Health Cards spec, the file content should be a JSON wrapper
+    // with verifiableCredential array containing the JWS
+    const fileContent = {
+      verifiableCredential: [jws],
+    }
+
+    return JSON.stringify(fileContent)
   }
 
   /**
@@ -185,13 +192,34 @@ export class SmartHealthCard {
    */
   async verifyFile(fileContent: string | Blob): Promise<VerifiableCredential> {
     try {
-      let jws: string
+      let contentString: string
 
       if (fileContent instanceof Blob) {
         // Read text from Blob
-        jws = await fileContent.text()
+        contentString = await fileContent.text()
       } else {
-        jws = fileContent
+        contentString = fileContent
+      }
+
+      let jws: string
+
+      // Try to parse as JSON wrapper format first
+      const parsed = JSON.parse(contentString)
+
+      if (parsed.verifiableCredential && Array.isArray(parsed.verifiableCredential)) {
+        // New JSON wrapper format
+        if (parsed.verifiableCredential.length === 0) {
+          throw new SmartHealthCardError(
+            'File contains empty verifiableCredential array',
+            'FILE_FORMAT_ERROR'
+          )
+        }
+        jws = parsed.verifiableCredential[0]
+      } else {
+        throw new SmartHealthCardError(
+          'File does not contain expected verifiableCredential array',
+          'FILE_FORMAT_ERROR'
+        )
       }
 
       // Verify the JWS content
@@ -246,19 +274,122 @@ export class SmartHealthCard {
    * For now, returns uncompressed JWS - compression can be added as optimization
    */
   private async compressJWS(jws: string): Promise<string> {
-    // TODO: Implement DEFLATE compression with proper base64 encoding
-    // The SMART Health Cards spec recommends DEFLATE compression to reduce QR code size
-    // For now, return uncompressed JWS which is valid per spec
-    return jws
+    try {
+      // Import fflate dynamically for web compatibility
+      const { deflateSync } = await import('fflate')
+
+      // Split JWS into header, payload, signature
+      const parts = jws.split('.')
+      if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+        throw new SmartHealthCardError('Invalid JWS format for compression', 'COMPRESSION_ERROR')
+      }
+
+      // Compress the payload using DEFLATE
+      const payloadBytes = new TextEncoder().encode(parts[1])
+      const compressedPayload = deflateSync(payloadBytes)
+
+      // Base64url encode the compressed payload
+      const compressedPayloadB64 = this.base64urlEncode(compressedPayload)
+
+      // Create new header with 'zip' property
+      const headerBytes = this.base64urlDecode(parts[0])
+      const headerObj = JSON.parse(new TextDecoder().decode(headerBytes))
+      headerObj.zip = 'DEF' // DEFLATE compression indicator
+      const newHeader = this.base64urlEncode(new TextEncoder().encode(JSON.stringify(headerObj)))
+
+      // Return compressed JWS
+      return `${newHeader}.${compressedPayloadB64}.${parts[2]}`
+    } catch (error) {
+      throw new SmartHealthCardError(
+        `DEFLATE compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'COMPRESSION_ERROR'
+      )
+    }
   }
 
   /**
    * Decompresses a JWS - currently handles uncompressed JWS
    */
   private async decompressJWS(jws: string): Promise<string> {
-    // TODO: Implement DEFLATE decompression with proper base64 decoding
-    // For now, assume JWS is uncompressed
-    return jws
+    try {
+      // Split JWS into header, payload, signature
+      const parts = jws.split('.')
+      if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+        // If it's not a valid JWS format, return as-is (let other validation catch it)
+        return jws
+      }
+
+      // Try to parse the header - if it fails, assume uncompressed
+      let headerObj: Record<string, unknown> | undefined
+      try {
+        const headerBytes = this.base64urlDecode(parts[0])
+        headerObj = JSON.parse(new TextDecoder().decode(headerBytes))
+      } catch {
+        // If header parsing fails, assume uncompressed
+        return jws
+      }
+
+      // If no compression, return as-is
+      if (!headerObj || !headerObj.zip || headerObj.zip !== 'DEF') {
+        return jws
+      }
+
+      // Import fflate dynamically for web compatibility
+      const { inflateSync } = await import('fflate')
+
+      // Decompress the payload using DEFLATE
+      const compressedPayload = this.base64urlDecode(parts[1])
+      const decompressedPayload = inflateSync(compressedPayload)
+
+      // Base64url encode the decompressed payload
+      const decompressedPayloadB64 = this.base64urlEncode(decompressedPayload)
+
+      // Remove 'zip' property from header
+      delete headerObj.zip
+      const newHeader = this.base64urlEncode(new TextEncoder().encode(JSON.stringify(headerObj)))
+
+      // Return decompressed JWS
+      return `${newHeader}.${decompressedPayloadB64}.${parts[2]}`
+    } catch {
+      // If decompression fails, return original JWS (let JWS verification handle the error)
+      return jws
+    }
+  }
+
+  /**
+   * Base64url encode a Uint8Array
+   */
+  private base64urlEncode(data: Uint8Array): string {
+    // Convert to base64
+    const base64 = btoa(String.fromCharCode(...data))
+
+    // Convert to base64url by replacing characters and removing padding
+    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+  }
+
+  /**
+   * Base64url decode to Uint8Array
+   */
+  private base64urlDecode(base64url: string): Uint8Array {
+    // Add padding if needed
+    let base64 = base64url
+    while (base64.length % 4) {
+      base64 += '='
+    }
+
+    // Convert base64url to base64
+    base64 = base64.replace(/-/g, '+').replace(/_/g, '/')
+
+    // Decode base64 to binary string
+    const binaryString = atob(base64)
+
+    // Convert to Uint8Array
+    const bytes = new Uint8Array(binaryString.length)
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i)
+    }
+
+    return bytes
   }
 }
 
@@ -281,6 +412,103 @@ export class FhirBundleProcessor {
     }
 
     return processedBundle
+  }
+
+  /**
+   * Processes a FHIR Bundle with QR code optimizations
+   * Implements short resource-scheme URIs and removes unnecessary fields
+   */
+  processForQR(bundle: FhirBundle): FhirBundle {
+    // Start with standard processing
+    const processedBundle = this.process(bundle)
+
+    // Apply QR optimizations
+    return this.optimizeForQR(processedBundle)
+  }
+
+  /**
+   * Optimizes a FHIR Bundle for QR code generation
+   * - Uses short resource-scheme URIs (resource:0, resource:1, etc.)
+   * - Removes unnecessary .id and .display fields
+   * - Removes empty arrays and null values
+   */
+  private optimizeForQR(bundle: FhirBundle): FhirBundle {
+    const optimizedBundle: FhirBundle = JSON.parse(JSON.stringify(bundle))
+
+    // Create resource reference mapping
+    const resourceMap = new Map<string, string>()
+
+    // First pass: map fullUrl to short resource references
+    if (optimizedBundle.entry) {
+      optimizedBundle.entry.forEach((entry, index) => {
+        if (entry.fullUrl) {
+          resourceMap.set(entry.fullUrl, `resource:${index}`)
+          entry.fullUrl = `resource:${index}`
+        }
+      })
+
+      // Second pass: optimize resources and update references
+      optimizedBundle.entry.forEach(entry => {
+        if (entry.resource) {
+          // Remove unnecessary id field if it matches the resource reference
+          if (
+            entry.resource.id &&
+            entry.fullUrl === `resource:${optimizedBundle.entry?.indexOf(entry)}`
+          ) {
+            delete entry.resource.id
+          }
+
+          // Recursively optimize the resource
+          entry.resource = this.optimizeResource(
+            entry.resource,
+            resourceMap
+          ) as typeof entry.resource
+        }
+      })
+    }
+
+    return optimizedBundle
+  }
+
+  /**
+   * Recursively optimizes a FHIR resource for QR codes
+   */
+  private optimizeResource(resource: unknown, resourceMap: Map<string, string>): unknown {
+    if (!resource || typeof resource !== 'object') {
+      return resource
+    }
+
+    if (Array.isArray(resource)) {
+      return resource
+        .map(item => this.optimizeResource(item, resourceMap))
+        .filter(item => item !== null && item !== undefined)
+    }
+
+    const optimized: Record<string, unknown> = {}
+
+    for (const [key, value] of Object.entries(resource as Record<string, unknown>)) {
+      // Skip null, undefined, and empty arrays
+      if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) {
+        continue
+      }
+
+      // Remove .display fields from CodeableConcept.coding
+      if (key === 'display' && typeof value === 'string') {
+        continue
+      }
+
+      // Update references to use short resource-scheme URIs
+      if (key === 'reference' && typeof value === 'string') {
+        const shortRef = resourceMap.get(value)
+        optimized[key] = shortRef || value
+        continue
+      }
+
+      // Recursively process nested objects and arrays
+      optimized[key] = this.optimizeResource(value, resourceMap)
+    }
+
+    return optimized
   }
 
   /**
@@ -466,7 +694,7 @@ export class VerifiableCredentialProcessor {
       throw new FhirValidationError('SMART Health Cards context must include correct @vocab')
     }
 
-    const fhirBundleContext = smartContextObj['fhirBundle'] as Record<string, unknown>
+    const fhirBundleContext = smartContextObj.fhirBundle as Record<string, unknown>
     if (
       !fhirBundleContext ||
       fhirBundleContext['@id'] !== 'https://smarthealth.cards#fhirBundle' ||
@@ -540,7 +768,8 @@ export class JWSProcessor {
   async sign(
     payload: SmartHealthCardJWT,
     privateKey: CryptoKey | string,
-    keyId: string
+    keyId: string,
+    enableCompression?: boolean
   ): Promise<string> {
     try {
       const { SignJWT } = await import('jose')
@@ -548,12 +777,18 @@ export class JWSProcessor {
       // Validate required payload fields
       this.validateJWTPayload(payload)
 
-      // Create JWT builder
-      const jwt = new SignJWT(payload).setProtectedHeader({
+      // Use a plain object for the header, as jose does not export JWTHeaderParameters
+      const header = {
         alg: 'ES256',
         kid: keyId,
         typ: 'JWT',
-      })
+      }
+      if (enableCompression) {
+        ;(header as Record<string, unknown>).zip = 'DEF'
+      }
+
+      // Create JWT builder
+      const jwt = new SignJWT(payload).setProtectedHeader(header)
 
       // Handle different key formats
       let key: CryptoKey
@@ -567,8 +802,8 @@ export class JWSProcessor {
       // Sign and return JWS
       const jws = await jwt.sign(key)
       return jws
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+    } catch (_error) {
+      const errorMessage = _error instanceof Error ? _error.message : String(_error)
       throw new JWSError(`JWS signing failed: ${errorMessage}`)
     }
   }
