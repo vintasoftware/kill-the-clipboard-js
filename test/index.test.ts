@@ -1,4 +1,6 @@
 // biome-ignore-all lint/suspicious/noExplicitAny: The test needs to use `any` to check validation errors
+
+import type { Bundle, Immunization, Patient } from '@medplum/fhirtypes'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   type FhirBundle,
@@ -53,9 +55,10 @@ const createValidFhirBundle = (): FhirBundle => ({
   ],
 })
 
-const createInvalidBundle = (): object => ({
-  resourceType: 'Patient', // Wrong resource type
+const createInvalidBundle = (): Bundle => ({
+  resourceType: 'Patient' as any, // Wrong resource type
   id: '123',
+  type: 'collection',
 })
 
 describe('SMART Health Cards Library', () => {
@@ -101,8 +104,8 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.process(null as unknown as object)).toThrow(FhirValidationError)
-        expect(() => processor.process(null as unknown as object)).toThrow(
+        expect(() => processor.process(null as unknown as Bundle)).toThrow(FhirValidationError)
+        expect(() => processor.process(null as unknown as Bundle)).toThrow(
           'Invalid bundle: must be a FHIR Bundle resource'
         )
       })
@@ -124,8 +127,8 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.validate(null as unknown as object)).toThrow(FhirValidationError)
-        expect(() => processor.validate(null as unknown as object)).toThrow(
+        expect(() => processor.validate(null as unknown as Bundle)).toThrow(FhirValidationError)
+        expect(() => processor.validate(null as unknown as Bundle)).toThrow(
           'Bundle cannot be null or undefined'
         )
       })
@@ -139,7 +142,7 @@ describe('SMART Health Cards Library', () => {
 
       it('should throw FhirValidationError for invalid Bundle.type', () => {
         const bundle = createValidFhirBundle()
-        bundle.type = 'invalid-type'
+        ;(bundle as any).type = 'invalid-type'
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
         expect(() => processor.validate(bundle)).toThrow('Invalid bundle type: invalid-type')
@@ -235,7 +238,7 @@ describe('SMART Health Cards Library', () => {
         expect(context).toHaveLength(2)
         expect(context[0]).toBe('https://www.w3.org/2018/credentials/v1')
 
-        const smartContext = context[1]
+        const smartContext = context[1] as Record<string, any>
         expect(smartContext['@vocab']).toBe('https://smarthealth.cards#')
         expect(smartContext.fhirBundle['@id']).toBe('https://smarthealth.cards#fhirBundle')
         expect(smartContext.fhirBundle['@type']).toBe('@json')
@@ -268,8 +271,8 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null bundle', () => {
-        expect(() => processor.create(null as unknown as object)).toThrow(FhirValidationError)
-        expect(() => processor.create(null as unknown as object)).toThrow(
+        expect(() => processor.create(null as unknown as Bundle)).toThrow(FhirValidationError)
+        expect(() => processor.create(null as unknown as Bundle)).toThrow(
           'Invalid FHIR Bundle provided'
         )
       })
@@ -294,14 +297,16 @@ describe('SMART Health Cards Library', () => {
       })
 
       it('should throw FhirValidationError for null VC', () => {
-        expect(() => processor.validate(null as unknown as object)).toThrow(FhirValidationError)
-        expect(() => processor.validate(null as unknown as object)).toThrow(
+        expect(() => processor.validate(null as unknown as VerifiableCredential)).toThrow(
+          FhirValidationError
+        )
+        expect(() => processor.validate(null as unknown as VerifiableCredential)).toThrow(
           'Invalid VC: missing vc property'
         )
       })
 
       it('should throw FhirValidationError for VC without vc property', () => {
-        const invalidVC = {} // @ts-ignore
+        const invalidVC = {} as VerifiableCredential
 
         expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
         expect(() => processor.validate(invalidVC)).toThrow('Invalid VC: missing vc property')
@@ -542,10 +547,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
       it('should throw JWSError for null payload', async () => {
         await expect(
-          processor.sign(null as unknown as object, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(null as unknown as SmartHealthCardJWT, testPrivateKeyPKCS8, 'test-key-id')
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(null as unknown as object, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(null as unknown as SmartHealthCardJWT, testPrivateKeyPKCS8, 'test-key-id')
         ).rejects.toThrow('Invalid JWT payload: must be an object')
       })
 
@@ -787,7 +792,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
 
       it('should throw error for null bundle', async () => {
-        await expect(smartHealthCard.create(null as unknown as object)).rejects.toThrow(
+        await expect(smartHealthCard.create(null as unknown as Bundle)).rejects.toThrow(
           SmartHealthCardError
         )
       })
@@ -916,9 +921,11 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
 
       it('should throw error for invalid file content', async () => {
-        await expect(smartHealthCard.verifyFile('invalid-content')).rejects.toThrow(JWSError)
         await expect(smartHealthCard.verifyFile('invalid-content')).rejects.toThrow(
-          'Invalid JWS format'
+          SmartHealthCardError
+        )
+        await expect(smartHealthCard.verifyFile('invalid-content')).rejects.toThrow(
+          'Invalid file format - expected JSON with verifiableCredential array'
         )
       })
 
@@ -1396,21 +1403,160 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       validBundle = createValidFhirBundle()
     })
 
-    it('should optimize FHIR Bundle for QR codes', () => {
-      const optimizedBundle = fhirProcessor.processForQR(validBundle)
+    describe('SMART Health Cards QR optimization requirements', () => {
+      let optimizedBundle: FhirBundle
 
-      expect(optimizedBundle).toBeDefined()
-      expect(optimizedBundle.resourceType).toBe('Bundle')
-      expect(optimizedBundle.type).toBe('collection')
+      beforeEach(() => {
+        // Create a bundle with all the elements that should be removed
+        const bundleWithAllElements: Bundle = {
+          resourceType: 'Bundle',
+          type: 'collection',
+          entry: [
+            {
+              fullUrl: 'Patient/123',
+              resource: {
+                resourceType: 'Patient',
+                id: '123',
+                meta: {
+                  versionId: '1',
+                  lastUpdated: '2023-01-01T00:00:00Z',
+                  security: [{ system: 'test', code: 'test' }],
+                },
+                text: {
+                  status: 'generated',
+                  div: '<div>Patient narrative</div>',
+                },
+                name: [
+                  {
+                    text: 'Display Name',
+                    family: 'Doe',
+                    given: ['John'],
+                  },
+                ],
+                identifier: [
+                  {
+                    system: 'test',
+                    value: '123',
+                    type: {
+                      coding: [
+                        {
+                          system: 'test',
+                          code: 'test',
+                          display: 'Test Display',
+                        },
+                      ],
+                      text: 'Type Text',
+                    },
+                  },
+                ],
+              } as Patient,
+            },
+            {
+              fullUrl: 'Immunization/456',
+              resource: {
+                resourceType: 'Immunization',
+                id: '456',
+                meta: {
+                  security: [{ system: 'test', code: 'secure' }],
+                },
+                status: 'completed',
+                vaccineCode: {
+                  coding: [
+                    {
+                      system: 'http://hl7.org/fhir/sid/cvx',
+                      code: '207',
+                      display: 'COVID-19 vaccine',
+                    },
+                  ],
+                  text: 'Vaccine Text',
+                },
+                patient: { reference: 'Patient/123' },
+              } as Immunization,
+            },
+          ],
+        }
 
-      // Check that fullUrl was converted to short resource references
-      if (optimizedBundle.entry) {
-        optimizedBundle.entry.forEach((entry, index) => {
-          if (entry.fullUrl) {
-            expect(entry.fullUrl).toBe(`resource:${index}`)
+        optimizedBundle = fhirProcessor.processForQR(bundleWithAllElements)
+      })
+
+      it('should remove Resource.id elements', () => {
+        optimizedBundle.entry?.forEach(entry => {
+          expect(entry.resource).not.toHaveProperty('id')
+        })
+      })
+
+      it('should remove Resource.meta elements except meta.security', () => {
+        optimizedBundle.entry?.forEach(entry => {
+          const resource = entry.resource as { meta?: { security?: unknown[] } }
+          if (resource.meta) {
+            // Should only have security field if meta exists
+            expect(Object.keys(resource.meta)).toEqual(['security'])
           }
         })
-      }
+      })
+
+      it('should remove DomainResource.text elements', () => {
+        optimizedBundle.entry?.forEach(entry => {
+          expect(entry.resource).not.toHaveProperty('text')
+        })
+      })
+
+      it('should remove CodeableConcept.text elements', () => {
+        // Check vaccineCode.text
+        const immunization = optimizedBundle.entry?.find(
+          e => e.resource?.resourceType === 'Immunization'
+        )?.resource as Immunization
+        expect(immunization?.vaccineCode).not.toHaveProperty('text')
+
+        // Check identifier.type.text
+        const patient = optimizedBundle.entry?.find(e => e.resource?.resourceType === 'Patient')
+          ?.resource as Patient
+        expect(patient?.identifier?.[0]?.type).not.toHaveProperty('text')
+      })
+
+      it('should remove Coding.display elements', () => {
+        // Check vaccineCode.coding.display
+        const immunization = optimizedBundle.entry?.find(
+          e => e.resource?.resourceType === 'Immunization'
+        )?.resource as Immunization
+        immunization?.vaccineCode?.coding?.forEach(coding => {
+          expect(coding).not.toHaveProperty('display')
+        })
+
+        // Check identifier.type.coding.display
+        const patient = optimizedBundle.entry?.find(e => e.resource?.resourceType === 'Patient')
+          ?.resource as Patient
+        patient?.identifier?.[0]?.type?.coding?.forEach(coding => {
+          expect(coding).not.toHaveProperty('display')
+        })
+      })
+
+      it('should use short resource-scheme URIs for Bundle.entry.fullUrl', () => {
+        optimizedBundle.entry?.forEach((entry, index) => {
+          expect(entry.fullUrl).toBe(`resource:${index}`)
+        })
+      })
+
+      it('should use short resource-scheme URIs for Reference.reference', () => {
+        const immunization = optimizedBundle.entry?.find(
+          e => e.resource?.resourceType === 'Immunization'
+        )?.resource as Immunization
+        expect(immunization?.patient?.reference).toBe('resource:0')
+      })
+
+      it('should preserve essential data after optimization', () => {
+        // Check that essential data is preserved
+        const patient = optimizedBundle.entry?.find(e => e.resource?.resourceType === 'Patient')
+          ?.resource as Patient
+        expect(patient?.name?.[0]?.family).toBe('Doe')
+        expect(patient?.name?.[0]?.given).toEqual(['John'])
+
+        const immunization = optimizedBundle.entry?.find(
+          e => e.resource?.resourceType === 'Immunization'
+        )?.resource as Immunization
+        expect(immunization?.status).toBe('completed')
+        expect(immunization?.vaccineCode?.coding?.[0]?.code).toBe('207')
+      })
     })
 
     it('should create SmartHealthCard with QR optimization enabled', async () => {

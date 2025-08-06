@@ -191,18 +191,18 @@ export class SmartHealthCard {
    * Accepts file content (string) or Blob from .smart-health-card files
    */
   async verifyFile(fileContent: string | Blob): Promise<VerifiableCredential> {
+    let contentString: string
+
+    if (fileContent instanceof Blob) {
+      // Read text from Blob
+      contentString = await fileContent.text()
+    } else {
+      contentString = fileContent
+    }
+
+    let jws: string
+
     try {
-      let contentString: string
-
-      if (fileContent instanceof Blob) {
-        // Read text from Blob
-        contentString = await fileContent.text()
-      } else {
-        contentString = fileContent
-      }
-
-      let jws: string
-
       // Try to parse as JSON wrapper format first
       const parsed = JSON.parse(contentString)
 
@@ -221,19 +221,19 @@ export class SmartHealthCard {
           'FILE_FORMAT_ERROR'
         )
       }
-
-      // Verify the JWS content
-      return await this.verify(jws)
     } catch (error) {
       if (error instanceof SmartHealthCardError) {
         throw error
       }
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new SmartHealthCardError(
-        `Failed to verify SMART Health Card file: ${errorMessage}`,
-        'FILE_VERIFICATION_ERROR'
+        `Invalid file format - expected JSON with verifiableCredential array: ${errorMessage}`,
+        'FILE_FORMAT_ERROR'
       )
     }
+
+    // Verify the JWS content
+    return await this.verify(jws)
   }
 
   /**
@@ -492,6 +492,30 @@ export class FhirBundleProcessor {
         continue
       }
 
+      // Remove Resource.id for all resources
+      if (key === 'id') {
+        continue
+      }
+
+      // Handle Resource.meta - only keep meta.security if present
+      if (key === 'meta') {
+        if (typeof value === 'object' && value !== null) {
+          const metaObj = value as Record<string, unknown>
+          if (metaObj.security && Array.isArray(metaObj.security)) {
+            optimized[key] = { security: metaObj.security }
+          }
+        }
+        continue
+      }
+
+      // Remove text from DomainResource and CodeableConcept
+      if (
+        (key === 'text' && this.isDomainResource(resource)) ||
+        (key === 'text' && this.isCodeableConcept(resource))
+      ) {
+        continue
+      }
+
       // Remove .display fields from CodeableConcept.coding
       if (key === 'display' && typeof value === 'string') {
         continue
@@ -509,6 +533,33 @@ export class FhirBundleProcessor {
     }
 
     return optimized
+  }
+
+  /**
+   * Checks if a resource is a DomainResource
+   * DomainResource is a base resource type with additional optional fields like text
+   */
+  private isDomainResource(resource: unknown): boolean {
+    const domainResourceFields = ['text', 'contained', 'extension', 'modifierExtension']
+
+    return (
+      resource !== null &&
+      typeof resource === 'object' &&
+      domainResourceFields.some(field => field in resource)
+    )
+  }
+
+  /**
+   * Checks if a resource is a CodeableConcept
+   * CodeableConcept typically has 'coding' and optional 'text' fields
+   */
+  private isCodeableConcept(resource: unknown): boolean {
+    return (
+      resource !== null &&
+      typeof resource === 'object' &&
+      'coding' in resource &&
+      Array.isArray((resource as Record<string, unknown>).coding)
+    )
   }
 
   /**
@@ -928,7 +979,7 @@ export class JWSProcessor {
 }
 
 export class QRCodeGenerator {
-  constructor(private config: QRCodeConfig = {}) {
+  constructor(public readonly config: QRCodeConfig = {}) {
     // Set default configuration values
     this.config.errorCorrectionLevel = this.config.errorCorrectionLevel || 'L'
     this.config.maxSingleQRSize = this.config.maxSingleQRSize || 1195
@@ -1153,7 +1204,7 @@ export class QRCodeGenerator {
    * Decodes numeric data back to JWS string
    * Reverses the encoding process: pairs of digits -> (value + 45) -> ASCII character
    */
-  private decodeNumericToJWS(numericData: string): string {
+  public decodeNumericToJWS(numericData: string): string {
     // Validate even length
     if (numericData.length % 2 !== 0) {
       throw new QRCodeError('Invalid numeric data: must have even length')
