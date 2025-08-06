@@ -1388,7 +1388,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         privateKey: testPrivateKeyPKCS8,
         publicKey: testPublicKeySPKI,
         keyId: 'test-key-id',
-        enableCompression: true, // Enable compression for these tests
       }
       smartHealthCard = new SmartHealthCard(config)
     })

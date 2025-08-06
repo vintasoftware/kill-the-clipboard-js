@@ -35,6 +35,7 @@ const config = {
   publicKey: publicKeySPKI,
   keyId: 'test-key-1',
   expirationTime: 86400, // 24 hours
+  enableQROptimization: true, // Enable FHIR Bundle optimization for QR codes
 }
 
 const smartHealthCard = new SmartHealthCard(config)
@@ -128,9 +129,13 @@ try {
   console.log('\n🔲 Testing QR Code Generation...')
 
   const qrGenerator = new QRCodeGenerator({
-    errorCorrectionLevel: 'L',
     maxSingleQRSize: 1195,
     enableChunking: false,
+    encodeOptions: {
+      ecc: 'low', // L level error correction
+      scale: 4, // Good size for testing
+      border: 1, // Minimal border
+    },
   })
 
   // Generate QR code
@@ -157,9 +162,13 @@ try {
   // Test chunked QR codes
   console.log('\n🔲 Testing Chunked QR Codes...')
   const chunkedGenerator = new QRCodeGenerator({
-    errorCorrectionLevel: 'L',
     maxSingleQRSize: 500, // Force chunking
     enableChunking: true,
+    encodeOptions: {
+      ecc: 'low', // L level error correction
+      scale: 4, // Good size for testing
+      border: 1, // Minimal border
+    },
   })
 
   const chunkedQRs = await chunkedGenerator.generateQR(healthCardJWS)
