@@ -250,20 +250,6 @@ try {
   await writeFile(`${testDir}/qr-codes.html`, qrHtml)
   console.log(`📄 Saved QR codes visualization: ${testDir}/qr-codes.html`)
 
-  // Create standard test files
-  const fileContent = await smartHealthCard.createFile(covidVaccinationBundle)
-  const healthCardFile = `${testDir}/covid-vaccination.smart-health-card`
-  await writeFile(healthCardFile, fileContent)
-  console.log(`📄 Saved SMART Health Card file: ${healthCardFile}`)
-
-  const jwsFile = `${testDir}/covid-vaccination.jws`
-  await writeFile(jwsFile, healthCardJWS)
-  console.log(`📄 Saved JWS file: ${jwsFile}`)
-
-  const bundleFile = `${testDir}/covid-vaccination-bundle.json`
-  await writeFile(bundleFile, JSON.stringify(covidVaccinationBundle, null, 2))
-  console.log(`📄 Saved FHIR Bundle file: ${bundleFile}`)
-
   // Test our own verification
   console.log('\n🔍 Testing internal verification...')
   const verifiedVC = await smartHealthCard.verify(healthCardJWS)
@@ -274,6 +260,23 @@ try {
   console.log(`   - FHIR Version: ${verifiedVC.vc.credentialSubject.fhirVersion}`)
   console.log(`   - Bundle Type: ${verifiedVC.vc.credentialSubject.fhirBundle.type}`)
 
+  // Create standard test files
+  const jwsFile = `${testDir}/covid-vaccination.jws`
+  await writeFile(jwsFile, healthCardJWS)
+  console.log(`📄 Saved JWS file: ${jwsFile}`)
+
+  const fileContent = await smartHealthCard.createFile(covidVaccinationBundle)
+  const healthCardFile = `${testDir}/covid-vaccination.smart-health-card`
+  await writeFile(healthCardFile, fileContent)
+  console.log(`📄 Saved SMART Health Card file: ${healthCardFile}`)
+
+  // Save the optimized bundle from the verified health card
+  // This will have the QR optimizations applied (short resource URIs, removed .id fields, etc.)
+  const optimizedBundle = verifiedVC.vc.credentialSubject.fhirBundle
+  const bundleFile = `${testDir}/covid-vaccination-bundle.json`
+  await writeFile(bundleFile, JSON.stringify(optimizedBundle, null, 2))
+  console.log(`📄 Saved optimized FHIR Bundle file: ${bundleFile}`)
+
   console.log('\n📋 QR Code Implementation Test Results:')
   console.log('✅ QR Code Generation: WORKING')
   console.log('✅ QR Code Scanning: WORKING')
@@ -283,15 +286,15 @@ try {
   console.log('✅ SHC Prefix Handling: WORKING')
 
   console.log('\n🧪 To test with the official validator:')
-  console.log('1. Build the health-cards-dev-tools validator:')
-  console.log('   cd health-cards-dev-tools && npm run build')
-  console.log('')
-  console.log('2. Test the JWS directly:')
-  console.log(
-    `   cd health-cards-dev-tools && node . --path ../test-output/covid-vaccination.jws --type jws`
-  )
-  console.log('')
-  console.log('3. Open the QR codes visualization:')
+  console.log('1. Go into the health-cards-dev-tools directory:')
+  console.log('   cd health-cards-dev-tools')
+  console.log('2. Test the SMART Health Card file:')
+  console.log(`   node . --path ../${healthCardFile} --type healthcard`)
+  console.log('3. Test the JWS directly:')
+  console.log(`   node . --path ../${jwsFile} --type jws`)
+  console.log('4. Test the FHIR Bundle:')
+  console.log(`   node . --path ../${bundleFile} --type fhirbundle`)
+  console.log('\n👀 Open the QR codes visualization:')
   console.log(`   Open ${testDir}/qr-codes.html in your browser`)
 } catch (error) {
   console.error('❌ Error during QR code testing:', error.message)

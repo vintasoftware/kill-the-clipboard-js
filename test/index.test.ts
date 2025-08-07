@@ -208,7 +208,6 @@ describe('SMART Health Cards Library', () => {
 
         expect(vc).toBeDefined()
         expect(vc.vc).toBeDefined()
-        expect(vc.vc['@context']).toBeDefined()
         expect(vc.vc.type).toBeDefined()
         expect(vc.vc.credentialSubject).toBeDefined()
       })
@@ -230,27 +229,12 @@ describe('SMART Health Cards Library', () => {
         expect(vc.vc.credentialSubject.fhirBundle).toEqual(validBundle)
       })
 
-      it('should create correct @context array', () => {
-        const vc = processor.create(validBundle)
-        const context = vc.vc['@context']
-
-        expect(Array.isArray(context)).toBe(true)
-        expect(context).toHaveLength(2)
-        expect(context[0]).toBe('https://www.w3.org/2018/credentials/v1')
-
-        const smartContext = context[1] as Record<string, any>
-        expect(smartContext['@vocab']).toBe('https://smarthealth.cards#')
-        expect(smartContext.fhirBundle['@id']).toBe('https://smarthealth.cards#fhirBundle')
-        expect(smartContext.fhirBundle['@type']).toBe('@json')
-      })
-
       it('should create correct type array', () => {
         const vc = processor.create(validBundle)
         const types = vc.vc.type
 
         expect(Array.isArray(types)).toBe(true)
-        expect(types).toHaveLength(2)
-        expect(types).toContain('VerifiableCredential')
+        expect(types).toHaveLength(1)
         expect(types).toContain('https://smarthealth.cards#health-card')
       })
 
@@ -263,8 +247,7 @@ describe('SMART Health Cards Library', () => {
         }
         const vc = processor.create(validBundle, options)
 
-        expect(vc.vc.type).toHaveLength(4)
-        expect(vc.vc.type).toContain('VerifiableCredential')
+        expect(vc.vc.type).toHaveLength(3)
         expect(vc.vc.type).toContain('https://smarthealth.cards#health-card')
         expect(vc.vc.type).toContain('https://smarthealth.cards#covid19')
         expect(vc.vc.type).toContain('https://example.org/vaccination')
@@ -312,68 +295,6 @@ describe('SMART Health Cards Library', () => {
         expect(() => processor.validate(invalidVC)).toThrow('Invalid VC: missing vc property')
       })
 
-      describe('@context validation', () => {
-        it('should throw error for non-array @context', () => {
-          const invalidVC = { ...validVC }
-          invalidVC.vc['@context'] = 'not-an-array' as any // @ts-ignore
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow('VC @context must be an array')
-        })
-
-        it('should throw error for @context with less than 2 elements', () => {
-          const invalidVC = { ...validVC }
-          invalidVC.vc['@context'] = ['https://www.w3.org/2018/credentials/v1']
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'VC @context must contain at least 2 elements'
-          )
-        })
-
-        it('should throw error for incorrect first @context element', () => {
-          const invalidVC = { ...validVC }
-          invalidVC.vc['@context'][0] = 'https://wrong-context.org'
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'First @context element must be https://www.w3.org/2018/credentials/v1'
-          )
-        })
-
-        it('should throw error for non-object second @context element', () => {
-          const invalidVC = { ...validVC }
-          invalidVC.vc['@context'][1] = 'not-an-object'
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'Second @context element must be SMART Health Cards context object'
-          )
-        })
-
-        it('should throw error for incorrect @vocab', () => {
-          const invalidVC = { ...validVC }
-          const context = invalidVC.vc['@context'][1] as any // @ts-ignore
-          context['@vocab'] = 'https://wrong-vocab.org'
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'SMART Health Cards context must include correct @vocab'
-          )
-        })
-
-        it('should throw error for incorrect fhirBundle definition', () => {
-          const invalidVC = { ...validVC }
-          const context = invalidVC.vc['@context'][1] as any // @ts-ignore
-          context.fhirBundle = { '@id': 'wrong-id', '@type': '@json' }
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'SMART Health Cards context must include correct fhirBundle definition'
-          )
-        })
-      })
-
       describe('type validation', () => {
         it('should throw error for non-array type', () => {
           const invalidVC = { ...validVC }
@@ -383,29 +304,19 @@ describe('SMART Health Cards Library', () => {
           expect(() => processor.validate(invalidVC)).toThrow('VC type must be an array')
         })
 
-        it('should throw error for type with less than 2 elements', () => {
+        it('should throw error for type with less than 1 element', () => {
           const invalidVC = { ...validVC }
-          invalidVC.vc.type = ['VerifiableCredential']
+          invalidVC.vc.type = []
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow(
-            'VC type must contain at least 2 elements'
-          )
-        })
-
-        it('should throw error for missing VerifiableCredential type', () => {
-          const invalidVC = { ...validVC }
-          invalidVC.vc.type = ['SomeOtherType', 'https://smarthealth.cards#health-card']
-
-          expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
-          expect(() => processor.validate(invalidVC)).toThrow(
-            'VC type must include VerifiableCredential'
+            'VC type must contain at least 1 element'
           )
         })
 
         it('should throw error for missing health-card type', () => {
           const invalidVC = { ...validVC }
-          invalidVC.vc.type = ['VerifiableCredential', 'SomeOtherType']
+          invalidVC.vc.type = ['SomeOtherType']
 
           expect(() => processor.validate(invalidVC)).toThrow(FhirValidationError)
           expect(() => processor.validate(invalidVC)).toThrow(
@@ -814,8 +725,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const decoded = await jwsProcessor.decode(healthCard)
 
         // Check VC structure
-        expect(decoded.payload.vc['@context']).toBeDefined()
-        expect(decoded.payload.vc.type).toContain('VerifiableCredential')
         expect(decoded.payload.vc.type).toContain('https://smarthealth.cards#health-card')
         expect(decoded.payload.vc.credentialSubject).toBeDefined()
         expect(decoded.payload.vc.credentialSubject.fhirBundle).toEqual(validBundle)
@@ -952,9 +861,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(verifiedVC.vc.credentialSubject.fhirBundle).toEqual(validBundle)
 
         // Step 4: Verify it's a proper SMART Health Card structure
-        expect(verifiedVC.vc.type).toContain('VerifiableCredential')
         expect(verifiedVC.vc.type).toContain('https://smarthealth.cards#health-card')
-        expect(verifiedVC.vc['@context'][0]).toBe('https://www.w3.org/2018/credentials/v1')
       })
 
       it('should handle complete file-based workflow', async () => {

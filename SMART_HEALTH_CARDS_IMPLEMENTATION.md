@@ -28,10 +28,9 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] Create W3C VC @context and type array handling for compliance Implemented in VerifiableCredentialProcessor with comprehensive validation
 - [x] Implement robust error handling with specific exception types for different failure modes SmartHealthCardError hierarchy with FhirValidationError, JWSError, QRCodeError
 - [x] Develop comprehensive test suite covering encoding, decoding, and validation scenarios
+- [x] Re-run manual validator and fix all warnings
 
 ## In Progress Tasks
-
-- 
 
 ## Future Tasks
 

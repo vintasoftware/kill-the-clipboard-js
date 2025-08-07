@@ -9,7 +9,6 @@ export type FhirBundle = Bundle
 
 export interface VerifiableCredential {
   vc: {
-    '@context': Array<string | object>
     type: string[]
     credentialSubject: {
       fhirVersion: string
@@ -521,16 +520,12 @@ export class VerifiableCredentialProcessor {
     // Set default FHIR version per SMART Health Cards spec
     const fhirVersion = options.fhirVersion || '4.0.1'
 
-    // Create the standard W3C VC @context per SMART Health Cards spec
-    const context = this.createStandardContext()
-
     // Create the standard type array per SMART Health Cards spec
     const type = this.createStandardTypes(options.includeAdditionalTypes)
 
     // Create the verifiable credential structure
     const vc: VerifiableCredential = {
       vc: {
-        '@context': context,
         type: type,
         credentialSubject: {
           fhirVersion: fhirVersion,
@@ -551,9 +546,6 @@ export class VerifiableCredentialProcessor {
         throw new FhirValidationError('Invalid VC: missing vc property')
       }
 
-      // Validate @context
-      this.validateContext(vc.vc['@context'])
-
       // Validate type array
       this.validateTypes(vc.vc.type)
 
@@ -571,77 +563,16 @@ export class VerifiableCredentialProcessor {
   }
 
   /**
-   * Creates the standard @context array per SMART Health Cards specification
-   */
-  private createStandardContext(): Array<string | object> {
-    return [
-      'https://www.w3.org/2018/credentials/v1',
-      {
-        '@vocab': 'https://smarthealth.cards#',
-        fhirBundle: {
-          '@id': 'https://smarthealth.cards#fhirBundle',
-          '@type': '@json',
-        },
-      },
-    ]
-  }
-
-  /**
    * Creates the standard type array per SMART Health Cards specification
    */
   private createStandardTypes(additionalTypes?: string[]): string[] {
-    const standardTypes = ['VerifiableCredential', 'https://smarthealth.cards#health-card']
+    const standardTypes = ['https://smarthealth.cards#health-card']
 
     if (additionalTypes && additionalTypes.length > 0) {
       return [...standardTypes, ...additionalTypes]
     }
 
     return standardTypes
-  }
-
-  /**
-   * Validates the @context array
-   */
-  private validateContext(context: Array<string | object>): void {
-    if (!Array.isArray(context)) {
-      throw new FhirValidationError('VC @context must be an array')
-    }
-
-    if (context.length < 2) {
-      throw new FhirValidationError('VC @context must contain at least 2 elements')
-    }
-
-    // First element must be the W3C VC context
-    if (context[0] !== 'https://www.w3.org/2018/credentials/v1') {
-      throw new FhirValidationError(
-        'First @context element must be https://www.w3.org/2018/credentials/v1'
-      )
-    }
-
-    // Second element must be SMART Health Cards context object
-    const smartContext = context[1]
-    if (typeof smartContext !== 'object' || smartContext === null) {
-      throw new FhirValidationError(
-        'Second @context element must be SMART Health Cards context object'
-      )
-    }
-
-    // Validate required SMART Health Cards context properties
-    const smartContextObj = smartContext as Record<string, unknown>
-    if (smartContextObj['@vocab'] !== 'https://smarthealth.cards#') {
-      throw new FhirValidationError('SMART Health Cards context must include correct @vocab')
-    }
-
-    const fhirBundleContext = smartContextObj.fhirBundle as Record<string, unknown>
-    if (
-      !fhirBundleContext ||
-      fhirBundleContext['@id'] !== 'https://smarthealth.cards#fhirBundle' ||
-      fhirBundleContext['@type'] !== '@json'
-    ) {
-      throw new FhirValidationError(
-        'SMART Health Cards context must include correct fhirBundle definition'
-      )
-    }
   }
 
   /**
@@ -652,14 +583,11 @@ export class VerifiableCredentialProcessor {
       throw new FhirValidationError('VC type must be an array')
     }
 
-    if (types.length < 2) {
-      throw new FhirValidationError('VC type must contain at least 2 elements')
+    if (types.length < 1) {
+      throw new FhirValidationError('VC type must contain at least 1 element')
     }
 
-    if (!types.includes('VerifiableCredential')) {
-      throw new FhirValidationError('VC type must include VerifiableCredential')
-    }
-
+    // Must include health-card type
     if (!types.includes('https://smarthealth.cards#health-card')) {
       throw new FhirValidationError('VC type must include https://smarthealth.cards#health-card')
     }
@@ -873,9 +801,6 @@ export class JWSProcessor {
         "Invalid JWT payload: 'vc' (verifiable credential) is required and must be an object"
       )
     }
-
-    // Additional VC structure validation could be added here
-    // For now, we rely on the VerifiableCredentialProcessor for detailed VC validation
   }
 
   /**
