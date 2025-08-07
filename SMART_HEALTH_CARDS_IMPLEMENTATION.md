@@ -73,41 +73,15 @@ Based on analysis of existing implementations:
 
 ### How to Run Validation Tests:
 
-1. **Generate Test Files:**
-   ```bash
-   node test-with-validator.js        # Basic JWS/FHIR validation
-   node test-qr-validation.js         # Complete QR code validation
-   ```
-
-2. **Setup Official Validator:**
+1. **Setup Official Validator:**
    ```bash
    cd health-cards-dev-tools
    npm run build
    ```
 
-3. **Run Core Validation Tests:**
+2. **Generate Test Files:**
    ```bash
-   # Test JWS structure
-   node . --path ../test-output/covid-vaccination.jws --type jws
-
-   # Test FHIR Bundle
-   node . --path ../test-output/covid-vaccination-bundle.json --type fhirbundle
-
-   # Test .smart-health-card file
-   node . --path ../test-output/covid-vaccination.smart-health-card --type healthcard
+   node test-with-validator.ts        # Complete validation with PNG QR codes
    ```
 
-4. **Run QR Code Validation Tests:**
-   ```bash
-   # Test single QR numeric data
-   node . --path ../test-output/single-qr-numeric.txt --type qrnumeric
-
-   # Test chunked QR numeric data (9 chunks)
-   node . --path ../test-output/chunk-{1..9}-qr-numeric.txt --type qrnumeric
-
-   # Test single QR image
-   node . --path ../test-output/qr-code.png --type qr
-
-   # Test chunked QR images (10 chunks)
-   node . --path ../test-output/qr-chunk-{1..10}.png --type qr
-   ```
+3. **Check the output from the test-with-validator for test commands**

@@ -9,7 +9,27 @@ import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { exportPKCS8, exportSPKI } from 'jose'
+import sharp from 'sharp'
 import { QRCodeGenerator, SmartHealthCard } from './dist/index.esm.js'
+
+/**
+ * Converts a GIF data URL to PNG file
+ */
+async function convertGifToPng(gifDataUrl: string, outputPath: string): Promise<void> {
+  try {
+    // Extract base64 data from data URL
+    const base64Data = gifDataUrl.replace('data:image/gif;base64,', '')
+
+    // Convert base64 to buffer
+    const gifBuffer = Buffer.from(base64Data, 'base64')
+
+    // Convert GIF to PNG using sharp
+    await sharp(gifBuffer).png().toFile(outputPath)
+  } catch (error) {
+    console.error(`Error converting GIF to PNG: ${error}`)
+    throw error
+  }
+}
 
 // Create test output directory
 const testDir = './test-output'
@@ -175,7 +195,7 @@ try {
   console.log(`✅ Generated ${chunkedQRs.length} chunked QR codes`)
 
   // Test chunked scanning (simulate getting numeric data from multiple QR codes)
-  const chunkedNumericData = []
+  const chunkedNumericData: string[] = []
   const chunkSize = 480 // Approximate chunk size after header overhead
   for (let i = 0; i < numericData.length; i += chunkSize) {
     const chunk = numericData.substring(i, i + chunkSize)
@@ -189,6 +209,23 @@ try {
   console.log(
     `🔄 Chunked reconstruction matches original: ${reconstructedFromChunks === healthCardJWS}`
   )
+
+  // Convert GIF QR codes to PNG for validator testing
+  console.log('\n🔄 Converting QR codes to PNG format for validator...')
+
+  // Convert single QR code to PNG
+  const singleQRPngPath = `${testDir}/single-qr.png`
+  await convertGifToPng(qrDataUrls[0], singleQRPngPath)
+  console.log(`📄 Saved single QR code as PNG: ${singleQRPngPath}`)
+
+  // Convert chunked QR codes to PNG
+  const chunkedQRPngPaths: string[] = []
+  for (let i = 0; i < chunkedQRs.length; i++) {
+    const chunkPngPath = `${testDir}/chunked-qr-${i + 1}.png`
+    await convertGifToPng(chunkedQRs[i], chunkPngPath)
+    chunkedQRPngPaths.push(chunkPngPath)
+    console.log(`📄 Saved chunked QR code ${i + 1} as PNG: ${chunkPngPath}`)
+  }
 
   // Save QR code data URLs as HTML for visual inspection
   const qrHtml = `
@@ -215,6 +252,9 @@ try {
             <strong>QR Content Preview:</strong><br/>
             <code>shc:/${numericData.substring(0, 100)}...</code>
         </div>
+        <div class="qr-info">
+            <strong>PNG File:</strong> single-qr.png (for validator testing)
+        </div>
     </div>
 
     <div class="qr-container">
@@ -225,6 +265,9 @@ try {
             <div style="margin: 10px 0;">
                 <h3>Chunk ${i + 1} of ${chunkedQRs.length}</h3>
                 <img src="${qr}" alt="Chunked QR Code ${i + 1}" />
+                <div class="qr-info">
+                    <strong>PNG File:</strong> chunked-qr-${i + 1}.png (for validator testing)
+                </div>
             </div>
         `
           )
@@ -242,6 +285,7 @@ try {
             <li>✅ Chunked QR Reconstruction: ${
               reconstructedFromChunks === healthCardJWS ? 'Pass' : 'Fail'
             }</li>
+            <li>✅ PNG Conversion: Success</li>
         </ul>
     </div>
 </body>
@@ -294,6 +338,11 @@ try {
   console.log(`   node . --path ../${jwsFile} --type jws`)
   console.log('4. Test the FHIR Bundle:')
   console.log(`   node . --path ../${bundleFile} --type fhirbundle`)
+  console.log('5. Test the QR codes (PNG format):')
+  console.log(`   node . --path ../${singleQRPngPath} --type qr`)
+  console.log('   # For chunked QR codes (single command with multiple paths):')
+  const chunkedPaths = chunkedQRPngPaths.map(path => `../${path}`).join(' --path ')
+  console.log(`   node . --path ${chunkedPaths} --type qr`)
   console.log('\n👀 Open the QR codes visualization:')
   console.log(`   Open ${testDir}/qr-codes.html in your browser`)
 } catch (error) {
