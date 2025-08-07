@@ -930,7 +930,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(qrDataUrls).toBeDefined()
         expect(Array.isArray(qrDataUrls)).toBe(true)
         expect(qrDataUrls).toHaveLength(1)
-        expect(qrDataUrls[0]).toMatch(/^data:image\/gif;base64,/)
+        expect(qrDataUrls[0]).toMatch(/^data:image\/png;base64,/)
       })
 
       it('should generate chunked QR codes when enabled and JWS is large', async () => {
@@ -947,7 +947,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         // All should be valid data URLs
         for (const dataUrl of qrDataUrls) {
-          expect(dataUrl).toMatch(/^data:image\/gif;base64,/)
+          expect(dataUrl).toMatch(/^data:image\/png;base64,/)
         }
       })
 
@@ -971,33 +971,46 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
           maxSingleQRSize: 2000,
           enableChunking: true,
           encodeOptions: {
-            ecc: 'high',
+            errorCorrectionLevel: 'H',
             scale: 8,
           },
         })
 
         expect(customGenerator.config.maxSingleQRSize).toBe(2000)
         expect(customGenerator.config.enableChunking).toBe(true)
-        expect(customGenerator.config.encodeOptions?.ecc).toBe('high')
+        expect(customGenerator.config.encodeOptions?.errorCorrectionLevel).toBe('H')
         expect(customGenerator.config.encodeOptions?.scale).toBe(8)
+      })
+
+      it('should throw QRCodeError when chunking is required but disabled', async () => {
+        const generator = new QRCodeGenerator({
+          maxSingleQRSize: 10,
+          enableChunking: false,
+        })
+
+        // Simple base64url-safe JWS-like string long enough to exceed maxSingleQRSize
+        const longJWS = 'header.payload.signatureheader.payload.signature'
+
+        await expect(generator.generateQR(longJWS)).rejects.toThrow(QRCodeError)
+        await expect(generator.generateQR(longJWS)).rejects.toThrow('exceeds maxSingleQRSize')
       })
 
       it('should accept custom encodeOptions and merge them with SMART Health Cards spec defaults', () => {
         const customGenerator = new QRCodeGenerator({
           encodeOptions: {
-            ecc: 'medium',
+            errorCorrectionLevel: 'M',
             scale: 2,
-            border: 3,
-            mask: 2,
+            margin: 3,
+            maskPattern: 2,
             version: 10,
           },
         })
 
         expect(customGenerator.config.encodeOptions).toEqual({
-          ecc: 'medium',
+          errorCorrectionLevel: 'M',
           scale: 2,
-          border: 3,
-          mask: 2,
+          margin: 3,
+          maskPattern: 2,
           version: 10,
         })
 
@@ -1006,12 +1019,15 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const mergedOptions = buildEncodeOptions()
 
         expect(mergedOptions).toEqual({
-          ecc: 'medium', // From encodeOptions, overrides default 'low'
+          errorCorrectionLevel: 'M', // From encodeOptions, overrides default 'L'
           scale: 2, // From encodeOptions, overrides default 4
-          border: 3, // From encodeOptions, overrides default 1
-          mask: 2, // From encodeOptions only
+          margin: 3, // From encodeOptions, overrides default 1
+          maskPattern: 2, // From encodeOptions only
           version: 10, // From encodeOptions only
-          // encoding is not set by default - qr library auto-selects optimal encoding
+          color: {
+            dark: '#000000ff', // Default dark color for SMART Health Cards
+            light: '#ffffffff', // Default light color for SMART Health Cards
+          },
         })
       })
 
@@ -1025,25 +1041,27 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const mergedOptions = buildEncodeOptions()
 
         expect(mergedOptions).toEqual({
-          ecc: 'low', // Default error correction level
+          errorCorrectionLevel: 'L', // Default error correction level from SMART Health Cards spec
           scale: 4, // Default scale
-          border: 1, // Default border
-          // encoding and version are not set by default - qr library auto-selects optimal settings
+          margin: 1, // Default margin from SMART Health Cards spec
+          color: {
+            dark: '#000000ff', // Default dark color for SMART Health Cards
+            light: '#ffffffff', // Default light color for SMART Health Cards
+          },
+          // version is not set by default - qrcode library auto-selects optimal settings
         })
       })
 
       it('should generate QR codes with custom encodeOptions applied', async () => {
         // Create a mock just for this test
-        const mockEncodeQR = vi.fn()
+        const mockToDataURL = vi.fn()
 
-        // Create a simple fake GIF byte array (minimal GIF header + data)
-        const fakeGifBytes = new Uint8Array([])
-
-        mockEncodeQR.mockReturnValue(fakeGifBytes)
+        // Return a simple PNG data URL string as qrcode library does
+        mockToDataURL.mockResolvedValue('data:image/png;base64,AAA')
 
         // Mock the qr module for this test only
-        vi.doMock('qr', () => ({
-          default: mockEncodeQR,
+        vi.doMock('qrcode', () => ({
+          toDataURL: mockToDataURL,
         }))
 
         // Use a simple test string
@@ -1051,9 +1069,9 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         const customGenerator = new QRCodeGenerator({
           encodeOptions: {
-            ecc: 'high', // Custom error correction level
+            errorCorrectionLevel: 'H', // Custom error correction level
             scale: 6, // Custom scale
-            border: 0, // No border
+            margin: 0, // No border
             version: 5, // Additional option
           },
         })
@@ -1062,15 +1080,21 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         // Verify the mock was called with correct parameters
         // The JWS gets encoded to numeric format per SMART Health Cards spec
-        expect(mockEncodeQR).toHaveBeenCalledWith(
-          'shc:/595652555669016752766366525501706058655271726956', // 'header.payload.signature' encoded to numeric
-          'gif',
+        const expectedNumeric = '595652555669016752766366525501706058655271726956'
+        expect(mockToDataURL).toHaveBeenCalledWith(
+          [
+            { data: Buffer.from('shc:/', 'utf8'), mode: 'byte' },
+            { data: expectedNumeric, mode: 'numeric' },
+          ],
           {
-            ecc: 'high', // From encodeOptions
-            scale: 6, // From encodeOptions
-            border: 0, // From encodeOptions
-            version: 5, // From encodeOptions
-            // encoding is not set - qr library auto-selects optimal encoding for "shc:/" + numeric data
+            errorCorrectionLevel: 'H',
+            scale: 6,
+            margin: 0,
+            version: 5,
+            color: {
+              dark: '#000000ff',
+              light: '#ffffffff',
+            },
           }
         )
 
@@ -1078,10 +1102,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(qrDataUrls).toBeDefined()
         expect(Array.isArray(qrDataUrls)).toBe(true)
         expect(qrDataUrls).toHaveLength(1)
-        expect(qrDataUrls[0]).toMatch(/^data:image\/gif;base64,/)
+        expect(qrDataUrls[0]).toMatch(/^data:image\/png;base64,/)
 
         // Clean up the mock for this test
-        vi.doUnmock('qr')
+        vi.doUnmock('qrcode')
       })
     })
 

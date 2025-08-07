@@ -86,21 +86,25 @@ export interface SmartHealthCardConfig {
   enableQROptimization?: boolean // Whether to optimize FHIR Bundle for QR codes
 }
 
-// Additional QR encoding options that can be passed to the qr library
+// Additional QR encoding options that can be passed to the qrcode library
+// This interface matches the expected qrcode library options
 export interface QREncodeOptions {
-  ecc?: 'low' | 'medium' | 'quartile' | 'high'
-  encoding?: 'numeric' | 'alphanumeric' | 'byte' | 'kanji' | 'eci'
+  errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H' // Error correction level
   version?: number // 1..40, QR code version
-  mask?: number // 0..7, mask number
-  border?: number // Border size
-  scale?: number // Scale factor
+  maskPattern?: number // 0..7, mask number
+  margin?: number // Quiet zone size (border)
+  scale?: number // Scale factor for output
+  width?: number // Forces specific width for output
+  color?: {
+    dark?: string // Color of dark modules (default: #000000ff)
+    light?: string // Color of light modules (default: #ffffffff)
+  }
 }
 
 export interface QRCodeConfig {
   maxSingleQRSize?: number // Maximum size for single QR code (default: 1195 per SMART Health Cards spec)
   enableChunking?: boolean // Whether to support multi-chunk QR codes (deprecated per SMART Health Cards spec)
   encodeOptions?: QREncodeOptions // Options to pass to encodeQR function (includes ecc, scale, version, etc.)
-  // Note: Default QR generation auto-selects optimal version and encoding per SMART Health Cards specification
 }
 
 // Core Classes
@@ -954,12 +958,16 @@ export class QRCodeGenerator {
    */
   async generateQR(jws: string): Promise<string[]> {
     try {
+      // Check chunking
+      const needsChunking = jws.length > (this.config.maxSingleQRSize || 1195)
+      if (!this.config.enableChunking && needsChunking) {
+        throw new QRCodeError(
+          `Chunking is not enabled, but JWS length exceeds maxSingleQRSize: ${jws.length} > ${this.config.maxSingleQRSize}`
+        )
+      }
+
       // Convert JWS to SMART Health Cards numeric format
       const numericData = this.encodeJWSToNumeric(jws)
-
-      // Check if we need chunking (deprecated but supported for compatibility)
-      const needsChunking =
-        this.config.enableChunking && numericData.length > (this.config.maxSingleQRSize || 1195)
 
       if (needsChunking) {
         return await this.generateChunkedQR(numericData)
@@ -1029,24 +1037,6 @@ export class QRCodeGenerator {
   }
 
   /**
-   * Converts binary GIF data to a data URL
-   */
-  private gifBytesToDataUrl(gifBytes: Uint8Array): string {
-    // Convert Uint8Array to base64
-    let binary = ''
-    const len = gifBytes.byteLength
-    for (let i = 0; i < len; i++) {
-      const byte = gifBytes[i]
-      if (byte !== undefined) {
-        binary += String.fromCharCode(byte)
-      }
-    }
-    const base64 = btoa(binary)
-
-    return `data:image/gif;base64,${base64}`
-  }
-
-  /**
    * Builds the final options object for encodeQR by merging defaults with user options
    * Defaults are aligned with SMART Health Cards specification recommendations
    */
@@ -1054,13 +1044,13 @@ export class QRCodeGenerator {
     // Default options aligned with SMART Health Cards specification
     // See: https://spec.smarthealth.cards/#health-cards-as-qr-codes
     const defaultOptions: QREncodeOptions = {
-      ecc: 'low', // Default error correction level per SMART Health Cards spec
-      scale: 4, // Default scale factor
-      border: 1, // Default border size
-      // Note: encoding is not set by default - the qr library automatically uses
-      // bytes mode for "shc:/" prefix and numeric mode for the converted JWS data
-      // Note: version is not set by default - the qr library will auto-select
-      // the optimal version. SMART Health Cards spec recommends V22 when possible.
+      errorCorrectionLevel: 'L', // L level error correction per SMART Health Cards spec
+      scale: 4, // Default scale factor for readability
+      margin: 1, // Minimal quiet zone size
+      color: {
+        dark: '#000000ff', // Black modules (SMART Health Cards compliant)
+        light: '#ffffffff', // White background (SMART Health Cards compliant)
+      },
     }
 
     // Merge user-provided options, giving them precedence
@@ -1071,30 +1061,35 @@ export class QRCodeGenerator {
   }
 
   /**
-   * Generates a single QR code with shc:/ prefix
+   * Generates a single QR code with multi-segment encoding per SMART Health Cards spec
    */
   private async generateSingleQR(numericData: string): Promise<string[]> {
-    const { default: encodeQR } = await import('qr')
+    const QRCode = await import('qrcode')
 
-    const qrContent = `shc:/${numericData}`
-
-    // Build the final options by merging defaults with user-provided options
     const options = this.buildEncodeOptions()
 
-    // Generate QR code as GIF bytes using the new qr library
-    const gifBytes = encodeQR(qrContent, 'gif', options)
+    // Create multi-segment encoding per SMART Health Cards specification:
+    // Segment 1: Bytes mode for "shc:/" prefix
+    // Segment 2: Numeric mode for JWS numeric data
+    const segments = [
+      { data: Buffer.from('shc:/', 'utf8'), mode: 'byte' as const },
+      { data: numericData, mode: 'numeric' as const },
+    ]
 
-    // Convert GIF bytes to data URL
-    const qrDataUrl = this.gifBytesToDataUrl(gifBytes)
+    // Generate QR code as data URL using the qrcode library
+    // @ts-ignore - qrcode types don't perfectly match our usage with segments
+    const qrDataUrl: string = await QRCode.toDataURL(segments, options)
 
     return [qrDataUrl]
   }
 
   /**
-   * Generates chunked QR codes (deprecated but supported for compatibility)
+   * Generates chunked QR codes with multi-segment encoding (deprecated but supported for compatibility)
    */
   private async generateChunkedQR(numericData: string): Promise<string[]> {
-    const { default: encodeQR } = await import('qr')
+    const QRCode = await import('qrcode')
+
+    const options = this.buildEncodeOptions()
 
     // Calculate chunk size based on max QR size minus header overhead
     const headerOverhead = 20 // Estimate for "shc:/1/N/" format
@@ -1109,19 +1104,22 @@ export class QRCodeGenerator {
     const totalChunks = chunks.length
     const qrDataUrls: string[] = []
 
-    // Build the final options by merging defaults with user-provided options
-    const options = this.buildEncodeOptions()
-
     // Generate QR code for each chunk
     for (let i = 0; i < chunks.length; i++) {
       const chunkIndex = i + 1 // 1-based indexing
-      const qrContent = `shc:/${chunkIndex}/${totalChunks}/${chunks[i]}`
 
-      // Generate QR code as GIF bytes using the new qr library
-      const gifBytes = encodeQR(qrContent, 'gif', options)
+      // Create multi-segment encoding per SMART Health Cards specification:
+      // Segment 1: Bytes mode for "shc:/{index}/{total}/" prefix
+      // Segment 2: Numeric mode for chunk data
+      const chunkPrefix = `shc:/${chunkIndex}/${totalChunks}/`
+      const segments = [
+        { data: Buffer.from(chunkPrefix, 'utf8'), mode: 'byte' as const },
+        { data: chunks[i], mode: 'numeric' as const },
+      ]
 
-      // Convert GIF bytes to data URL
-      const qrDataUrl = this.gifBytesToDataUrl(gifBytes)
+      // Generate QR code as data URL using the qrcode library
+      // @ts-ignore - qrcode types don't perfectly match our usage with segments
+      const qrDataUrl: string = await QRCode.toDataURL(segments, options)
       qrDataUrls.push(qrDataUrl)
     }
 

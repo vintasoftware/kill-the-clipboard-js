@@ -9,24 +9,22 @@ import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { exportPKCS8, exportSPKI } from 'jose'
-import sharp from 'sharp'
+
 import { QRCodeGenerator, SmartHealthCard } from './dist/index.esm.js'
 
 /**
- * Converts a GIF data URL to PNG file
+ * Saves a PNG data URL to a PNG file
  */
-async function convertGifToPng(gifDataUrl: string, outputPath: string): Promise<void> {
+async function savePngDataUrl(pngDataUrl: string, outputPath: string): Promise<void> {
   try {
     // Extract base64 data from data URL
-    const base64Data = gifDataUrl.replace('data:image/gif;base64,', '')
+    const base64Data = pngDataUrl.replace('data:image/png;base64,', '')
 
-    // Convert base64 to buffer
-    const gifBuffer = Buffer.from(base64Data, 'base64')
-
-    // Convert GIF to PNG using sharp
-    await sharp(gifBuffer).png().toFile(outputPath)
+    // Convert base64 to buffer and save directly
+    const pngBuffer = Buffer.from(base64Data, 'base64')
+    await writeFile(outputPath, pngBuffer)
   } catch (error) {
-    console.error(`Error converting GIF to PNG: ${error}`)
+    console.error(`Error saving PNG file: ${error}`)
     throw error
   }
 }
@@ -149,13 +147,7 @@ try {
   console.log('\n🔲 Testing QR Code Generation...')
 
   const qrGenerator = new QRCodeGenerator({
-    maxSingleQRSize: 1195,
     enableChunking: false,
-    encodeOptions: {
-      ecc: 'low', // L level error correction
-      scale: 4, // Good size for testing
-      border: 1, // Minimal border
-    },
   })
 
   // Generate QR code
@@ -184,14 +176,9 @@ try {
   const chunkedGenerator = new QRCodeGenerator({
     maxSingleQRSize: 500, // Force chunking
     enableChunking: true,
-    encodeOptions: {
-      ecc: 'low', // L level error correction
-      scale: 4, // Good size for testing
-      border: 1, // Minimal border
-    },
   })
 
-  const chunkedQRs = await chunkedGenerator.generateQR(healthCardJWS)
+  const chunkedQRs = (await chunkedGenerator.generateQR(healthCardJWS)) as unknown as string[]
   console.log(`✅ Generated ${chunkedQRs.length} chunked QR codes`)
 
   // Test chunked scanning (simulate getting numeric data from multiple QR codes)
@@ -210,19 +197,19 @@ try {
     `🔄 Chunked reconstruction matches original: ${reconstructedFromChunks === healthCardJWS}`
   )
 
-  // Convert GIF QR codes to PNG for validator testing
-  console.log('\n🔄 Converting QR codes to PNG format for validator...')
+  // Save QR codes as PNG files for validator testing
+  console.log('\n💾 Saving QR codes as PNG files for validator...')
 
-  // Convert single QR code to PNG
+  // Save single QR code to PNG
   const singleQRPngPath = `${testDir}/single-qr.png`
-  await convertGifToPng(qrDataUrls[0], singleQRPngPath)
+  await savePngDataUrl(qrDataUrls[0], singleQRPngPath)
   console.log(`📄 Saved single QR code as PNG: ${singleQRPngPath}`)
 
-  // Convert chunked QR codes to PNG
+  // Save chunked QR codes to PNG
   const chunkedQRPngPaths: string[] = []
   for (let i = 0; i < chunkedQRs.length; i++) {
     const chunkPngPath = `${testDir}/chunked-qr-${i + 1}.png`
-    await convertGifToPng(chunkedQRs[i], chunkPngPath)
+    await savePngDataUrl(chunkedQRs[i], chunkPngPath)
     chunkedQRPngPaths.push(chunkPngPath)
     console.log(`📄 Saved chunked QR code ${i + 1} as PNG: ${chunkPngPath}`)
   }
@@ -298,8 +285,9 @@ try {
   console.log('\n🔍 Testing internal verification...')
   const verifiedVC = await smartHealthCard.verify(healthCardJWS)
   console.log('✅ Internal verification successful')
+
   console.log(
-    `   - Patient: ${verifiedVC.vc.credentialSubject.fhirBundle.entry[0].resource.name[0].family}`
+    `   - Patient: ${verifiedVC.vc.credentialSubject.fhirBundle.entry[0]?.resource?.name?.[0]?.family || 'Unknown'}`
   )
   console.log(`   - FHIR Version: ${verifiedVC.vc.credentialSubject.fhirVersion}`)
   console.log(`   - Bundle Type: ${verifiedVC.vc.credentialSubject.fhirBundle.type}`)
