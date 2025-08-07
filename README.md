@@ -105,9 +105,13 @@ const fhirBundle = {
 const signedHealthCard = await healthCard.create(fhirBundle);
 console.log('Health Card JWS:', signedHealthCard);
 
-// Verify the health card
+// Verify the health card and get the FHIR Bundle
+const fhirBundle = await healthCard.getBundle(signedHealthCard);
+console.log('Verified FHIR Bundle:', fhirBundle);
+
+// Or use the full verify method to get the complete verifiable credential
 const verifiedCredential = await healthCard.verify(signedHealthCard);
-console.log('Verified FHIR Bundle:', verifiedCredential.vc.credentialSubject.fhirBundle);
+console.log('Complete credential:', verifiedCredential);
 
 // Generate downloadable .smart-health-card file
 const blob = await healthCard.createFileBlob(fhirBundle);
@@ -284,6 +288,7 @@ new SmartHealthCard(config: SmartHealthCardConfig)
 
 - `create(fhirBundle: FhirBundle): Promise<string>` - Creates a signed SMART Health Card JWS
 - `verify(jws: string): Promise<VerifiableCredential>` - Verifies and decodes a SMART Health Card
+- `getBundle(jws: string): Promise<FhirBundle>` - Verifies and returns the FHIR Bundle directly (convenience method)
 - `createFile(fhirBundle: FhirBundle): Promise<string>` - Creates file content for .smart-health-card files
 - `createFileBlob(fhirBundle: FhirBundle): Promise<Blob>` - Creates downloadable Blob
 - `verifyFile(fileContent: string | Blob): Promise<VerifiableCredential>` - Verifies from file content

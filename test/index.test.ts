@@ -782,6 +782,18 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
     })
 
+    describe('getBundle()', () => {
+      it('should return the same bundle as verify().vc.credentialSubject.fhirBundle', async () => {
+        const healthCard = await smartHealthCard.create(validBundle)
+
+        const bundleFromGetBundle = await smartHealthCard.getBundle(healthCard)
+        const verifiedVC = await smartHealthCard.verify(healthCard)
+        const bundleFromVerify = verifiedVC.vc.credentialSubject.fhirBundle
+
+        expect(bundleFromGetBundle).toEqual(bundleFromVerify)
+      })
+    })
+
     describe('file operations', () => {
       it('should create SMART Health Card file content', async () => {
         const fileContent = await smartHealthCard.createFile(validBundle)

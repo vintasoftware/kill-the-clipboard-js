@@ -277,6 +277,15 @@ export class SmartHealthCard {
       )
     }
   }
+
+  /**
+   * Verifies a SMART Health Card JWS and returns the contained FHIR Bundle
+   * Convenience method that extracts the FHIR Bundle from the verified credential
+   */
+  async getBundle(jws: string): Promise<FhirBundle> {
+    const verifiedCredential = await this.verify(jws)
+    return verifiedCredential.vc.credentialSubject.fhirBundle
+  }
 }
 
 export class FhirBundleProcessor {
