@@ -1239,17 +1239,3 @@ export class QRCodeGenerator {
       .join('')
   }
 }
-
-// Main export
-export default {
-  SmartHealthCard,
-  FhirBundleProcessor,
-  VerifiableCredentialProcessor,
-  JWSProcessor,
-  QRCodeGenerator,
-  // Error classes
-  SmartHealthCardError,
-  FhirValidationError,
-  JWSError,
-  QRCodeError,
-}

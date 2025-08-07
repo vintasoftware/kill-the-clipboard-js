@@ -9,8 +9,9 @@ import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { exportPKCS8, exportSPKI } from 'jose'
+import type { FhirBundle } from 'kill-the-clipboard-js'
 
-import { QRCodeGenerator, SmartHealthCard } from './dist/index.esm.js'
+import { QRCodeGenerator, SmartHealthCard } from 'kill-the-clipboard-js'
 
 /**
  * Saves a PNG data URL to a PNG file
@@ -59,7 +60,7 @@ const config = {
 const smartHealthCard = new SmartHealthCard(config)
 
 // Test FHIR Bundle - COVID-19 Vaccination Record
-const covidVaccinationBundle = {
+const covidVaccinationBundle: FhirBundle = {
   resourceType: 'Bundle',
   type: 'collection',
   entry: [
@@ -178,7 +179,7 @@ try {
     enableChunking: true,
   })
 
-  const chunkedQRs = (await chunkedGenerator.generateQR(healthCardJWS)) as unknown as string[]
+  const chunkedQRs = await chunkedGenerator.generateQR(healthCardJWS)
   console.log(`✅ Generated ${chunkedQRs.length} chunked QR codes`)
 
   // Test chunked scanning (simulate getting numeric data from multiple QR codes)
@@ -286,9 +287,10 @@ try {
   const verifiedVC = await smartHealthCard.verify(healthCardJWS)
   console.log('✅ Internal verification successful')
 
-  console.log(
-    `   - Patient: ${verifiedVC.vc.credentialSubject.fhirBundle.entry[0]?.resource?.name?.[0]?.family || 'Unknown'}`
-  )
+  const bundle = verifiedVC.vc.credentialSubject.fhirBundle
+  const firstResource = bundle.entry?.[0]?.resource
+  const patient = firstResource?.resourceType === 'Patient' ? firstResource : undefined
+  console.log(`   - Patient: ${patient?.name?.[0]?.family ?? 'Unknown'}`)
   console.log(`   - FHIR Version: ${verifiedVC.vc.credentialSubject.fhirVersion}`)
   console.log(`   - Bundle Type: ${verifiedVC.vc.credentialSubject.fhirBundle.type}`)
 
