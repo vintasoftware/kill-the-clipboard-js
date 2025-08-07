@@ -17,7 +17,7 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] Created detailed README with usage examples, API reference, and technical specifications including file operations
 - [x] Tested implementation against official SMART Health Cards dev tools validator, identified areas for optimization and compliance improvements
 - [x] Comprehensive testing of all 4 QR validation types (qrnumeric single/chunked, qr single/chunked) using health-cards-dev-tools validator v1.3.0-2
-- [x] Added 'zip' property to JWS header and implemented DEFLATE compression using fflate for web compatibility. Compression is now optional via `enableCompression` config flag.
+- [x] Added 'zip' property to JWS header and implemented DEFLATE compression using fflate for web compatibility. Compression is enabled by default (zip: "DEF").
 - [x] Fixed .smart-health-card file format to use JSON wrapper with verifiableCredential array instead of raw JWS.
 - [x] Implemented short resource-scheme URIs (`resource:0`, `resource:1`, etc.) and removal of unnecessary .id/.display fields for QR-optimized bundles via `enableQROptimization` config flag.
 - [x] Implement QR code generation with single-code optimization (primary implementation) Full QR code implementation with single and chunked modes
@@ -29,6 +29,7 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] Implement robust error handling with specific exception types for different failure modes SmartHealthCardError hierarchy with FhirValidationError, JWSError, QRCodeError
 - [x] Develop comprehensive test suite covering encoding, decoding, and validation scenarios
 - [x] Re-run manual validator and fix all warnings
+- [x] Aligned QR encode options to match `qrcode` library API (`errorCorrectionLevel`, `margin`, `color`, etc.) and updated README examples accordingly
 
 ## In Progress Tasks
 

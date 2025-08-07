@@ -38,8 +38,8 @@ This aligns with the [CMS Interoperability Framework](https://www.cms.gov/health
 - Complete QR code scanning and reconstruction
 - Flexible QR encoding options with intelligent defaults
 
-🔄 **Coming Soon**
-- DEFLATE compression for payload optimization
+✅ **Payload Compression**
+- DEFLATE compression (zip: "DEF") implemented and enabled by default for JWS payloads
 
 ## Installation
 
@@ -106,8 +106,8 @@ const signedHealthCard = await healthCard.create(fhirBundle);
 console.log('Health Card JWS:', signedHealthCard);
 
 // Verify the health card and get the FHIR Bundle
-const fhirBundle = await healthCard.getBundle(signedHealthCard);
-console.log('Verified FHIR Bundle:', fhirBundle);
+const verifiedBundle = await healthCard.getBundle(signedHealthCard);
+console.log('Verified FHIR Bundle:', verifiedBundle);
 
 // Or use the full verify method to get the complete verifiable credential
 const verifiedCredential = await healthCard.verify(signedHealthCard);
@@ -162,9 +162,11 @@ const qrGenerator = new QRCodeGenerator({
   maxSingleQRSize: 1195,
   enableChunking: false, // Use single QR mode (recommended)
   encodeOptions: {
-    ecc: 'low', // Error correction level (low, medium, quartile, high)
-    scale: 4,   // QR code scale factor
-    border: 1   // Border size
+    errorCorrectionLevel: 'L', // L per SMART Health Cards spec
+    scale: 4,                  // QR code scale factor
+    margin: 1,                 // Quiet zone size
+    color: { dark: '#000000ff', light: '#ffffffff' },
+    // Optional: version, maskPattern, width
   }
 });
 
@@ -211,9 +213,9 @@ import { SmartHealthCard } from 'kill-the-clipboard-js';
 
 const healthCard = new SmartHealthCard(config);
 
-// Create SMART Health Card file content
+// Create SMART Health Card file content (JSON wrapper with verifiableCredential array)
 const fileContent = await healthCard.createFile(fhirBundle);
-console.log('File content:', fileContent); // JWS string
+console.log('File content:', fileContent); // JSON string with { verifiableCredential: [jws] }
 
 // Create downloadable Blob (web-compatible)
 const blob = await healthCard.createFileBlob(fhirBundle);
@@ -324,12 +326,13 @@ Generates and scans QR codes for SMART Health Cards with proper numeric encoding
 - `maxSingleQRSize?: number` - Maximum size for single QR code (default: 1195 per SMART Health Cards spec)
 - `enableChunking?: boolean` - Whether to support multi-chunk QR codes (deprecated per SMART Health Cards spec)
 - `encodeOptions?: QREncodeOptions` - Options passed to the QR encoder:
-  - `ecc?: 'low' | 'medium' | 'quartile' | 'high'` - Error correction level (default: 'low')
-  - `scale?: number` - QR code scale factor (default: 4)  
-  - `border?: number` - Border size (default: 1)
-  - `version?: number` - QR version 1-40 (auto-selected by default per SMART Health Cards spec)
-  - `encoding?: 'numeric' | 'alphanumeric' | 'byte' | 'kanji' | 'eci'` - Auto-selected by default
-  - `mask?: number` - Mask pattern 0-7
+  - `errorCorrectionLevel?: 'L' | 'M' | 'Q' | 'H'` - Error correction level (default: 'L')
+  - `scale?: number` - QR code scale factor (default: 4)
+  - `margin?: number` - Quiet zone size (default: 1)
+  - `color?: { dark?: string; light?: string }` - Module and background colors in hex format
+  - `version?: number` - QR version 1-40 (auto-selected by default)
+  - `maskPattern?: number` - Mask pattern 0-7
+  - `width?: number` - Forces specific width for output
 
 #### Methods
 
@@ -347,7 +350,7 @@ Generates and scans QR codes for SMART Health Cards with proper numeric encoding
 4. **JWS Signature** → Signed with ES256 (ECDSA P-256) algorithm
 5. **File Generation** → `.smart-health-card` files for download/sharing
 6. **QR Code Generation** → Single or chunked QR codes with `shc:/` prefix and numeric encoding
-7. **Optional Compression** → DEFLATE compression (coming soon)
+7. **Compression** → DEFLATE compression (zip: "DEF") enabled by default
 
 ### Security
 
