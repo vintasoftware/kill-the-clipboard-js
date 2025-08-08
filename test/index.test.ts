@@ -533,7 +533,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       it('should throw JWSError for invalid JWS format', async () => {
         await expect(processor.verify('invalid.jws', testPublicKeySPKI)).rejects.toThrow(JWSError)
         await expect(processor.verify('invalid.jws', testPublicKeySPKI)).rejects.toThrow(
-          'Invalid JWS format: must have 3 parts'
+          'JWS verification failed: Invalid Compact JWS'
         )
       })
 

@@ -722,13 +722,8 @@ export class JWSProcessor {
     try {
       const { compactVerify } = await import('jose')
 
-      // Validate JWS format
       if (!jws || typeof jws !== 'string') {
         throw new JWSError('Invalid JWS: must be a non-empty string')
-      }
-      const parts = jws.split('.')
-      if (parts.length !== 3) {
-        throw new JWSError('Invalid JWS format: must have 3 parts')
       }
 
       // Import key
