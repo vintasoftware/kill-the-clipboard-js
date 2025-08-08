@@ -26,7 +26,7 @@ This aligns with the [CMS Interoperability Framework](https://www.cms.gov/health
 
 ✅ **Production Ready**
 - TypeScript support with full type definitions
-- Comprehensive test suite (120 tests)
+- Comprehensive test suite (100+ tests)
 - Proper error handling hierarchy  
 - Built for Node.js and browser environments
 - Web-compatible file operations
@@ -288,7 +288,7 @@ new SmartHealthCard(config: SmartHealthCardConfig)
 
 #### Methods
 
-- `create(fhirBundle: FhirBundle): Promise<string>` - Creates a signed SMART Health Card JWS
+- `create(fhirBundle: FhirBundle, options?: VerifiableCredentialOptions): Promise<string>` - Creates a signed SMART Health Card JWS (supports additional VC types via `options.includeAdditionalTypes`)
 - `verify(jws: string): Promise<VerifiableCredential>` - Verifies and decodes a SMART Health Card
 - `getBundle(jws: string): Promise<FhirBundle>` - Verifies and returns the FHIR Bundle directly (convenience method)
 - `createFile(fhirBundle: FhirBundle): Promise<string>` - Creates file content for .smart-health-card files
@@ -311,11 +311,11 @@ Creates and validates W3C Verifiable Credentials for SMART Health Cards.
 
 ### `JWSProcessor`
 
-Handles JWT/JWS signing and verification with ES256 algorithm.
+Handles JWT/JWS signing and verification with ES256 algorithm. Payloads are raw-DEFLATE compressed when `zip: "DEF"` is set.
 
-- `sign(payload: SmartHealthCardJWT, privateKey, keyId): Promise<string>` - Signs JWT
-- `verify(jws: string, publicKey): Promise<SmartHealthCardJWT>` - Verifies JWS
-- `decode(jws: string): Promise<{header, payload}>` - Decodes without verification
+- `sign(payload: SmartHealthCardJWT, privateKey, keyId): Promise<string>` - Signs JWT (compresses payload before signing, sets `zip: "DEF"`)
+- `verify(jws: string, publicKey): Promise<SmartHealthCardJWT>` - Verifies JWS and returns payload
+- To inspect headers without verification, use `jose.decodeProtectedHeader(jws)` from the `jose` library
 
 ### `QRCodeGenerator`
 

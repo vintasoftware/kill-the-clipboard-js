@@ -123,7 +123,10 @@ export class SmartHealthCard {
    * Creates a SMART Health Card from a FHIR Bundle
    * Returns a compressed JWS ready for QR code generation
    */
-  async create(fhirBundle: FhirBundle): Promise<string> {
+  async create(
+    fhirBundle: FhirBundle,
+    vcOptions: VerifiableCredentialOptions = {}
+  ): Promise<string> {
     try {
       // Step 1: Process and validate FHIR Bundle
       const processedBundle = this.config.enableQROptimization
@@ -132,7 +135,7 @@ export class SmartHealthCard {
       this.fhirProcessor.validate(processedBundle)
 
       // Step 2: Create W3C Verifiable Credential
-      const vc = this.vcProcessor.create(processedBundle)
+      const vc = this.vcProcessor.create(processedBundle, vcOptions)
       this.vcProcessor.validate(vc)
 
       // Step 3: Create JWT payload with issuer information
@@ -153,7 +156,7 @@ export class SmartHealthCard {
         jwtPayload,
         this.config.privateKey,
         this.config.keyId,
-        true // Enable compression
+        true // Enable compression per SMART Health Cards spec
       )
 
       return jws
@@ -476,17 +479,9 @@ export class FhirBundleProcessor {
         throw new FhirValidationError('Resource must be of type Bundle')
       }
 
-      // Validate bundle type
-      const validBundleTypes = [
-        'collection',
-        'batch',
-        'history',
-        'searchset',
-        'transaction',
-        'transaction-response',
-      ]
-      if (bundle.type && !validBundleTypes.includes(bundle.type)) {
-        throw new FhirValidationError(`Invalid bundle type: ${bundle.type}`)
+      // Validate bundle type (SMART Health Cards requires 'collection')
+      if (bundle.type && bundle.type !== 'collection') {
+        throw new FhirValidationError(`Invalid bundle type for SMART Health Cards: ${bundle.type}`)
       }
 
       // Validate entries if present
@@ -641,6 +636,34 @@ export class VerifiableCredentialProcessor {
 
 export class JWSProcessor {
   /**
+   * Raw DEFLATE compression helper
+   */
+  private async deflateRaw(data: Uint8Array): Promise<Uint8Array> {
+    const { deflate } = await import('fflate')
+    return new Promise<Uint8Array>((resolve, reject) => {
+      // fflate.deflate is raw DEFLATE (no headers)
+      deflate(data, (err: Error | null, out: Uint8Array) => {
+        if (err) reject(err)
+        else resolve(out)
+      })
+    })
+  }
+
+  /**
+   * Raw DEFLATE decompression helper
+   */
+  private async inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+    const { inflate } = await import('fflate')
+    return new Promise<Uint8Array>((resolve, reject) => {
+      // fflate.inflate expects raw DEFLATE input
+      inflate(data, (err: Error | null, out: Uint8Array) => {
+        if (err) reject(err)
+        else resolve(out)
+      })
+    })
+  }
+
+  /**
    * Signs a SMART Health Card JWT payload using ES256 algorithm
    * Returns JWS in compact serialization format (header.payload.signature)
    */
@@ -651,27 +674,30 @@ export class JWSProcessor {
     enableCompression = true
   ): Promise<string> {
     try {
-      const { SignJWT } = await import('jose')
+      const { CompactSign } = await import('jose')
 
       // Validate required payload fields
       this.validateJWTPayload(payload)
 
-      // Use a plain object for the header, as jose does not export JWTHeaderParameters
-      const header: { alg: 'ES256'; kid: string; typ: 'JWT'; zip?: string } = {
+      // Protected header per SMART Health Cards
+      const header: { alg: 'ES256'; kid: string; typ: 'JWT'; zip?: 'DEF' } = {
         alg: 'ES256',
         kid: keyId,
         typ: 'JWT',
       }
 
-      // Add compression header if enabled
+      // Serialize payload
+      const payloadJson = JSON.stringify(payload)
+      const encoder = new TextEncoder()
+      let payloadBytes = encoder.encode(payloadJson)
+
+      // Compress the payload BEFORE signing using raw DEFLATE (zip: "DEF")
       if (enableCompression) {
+        payloadBytes = await this.deflateRaw(payloadBytes)
         header.zip = 'DEF'
       }
 
-      // Create JWT builder
-      const jwt = new SignJWT(payload).setProtectedHeader(header)
-
-      // Handle different key formats
+      // Import key
       let key: CryptoKey
       if (typeof privateKey === 'string') {
         const { importPKCS8 } = await import('jose')
@@ -680,14 +706,8 @@ export class JWSProcessor {
         key = privateKey
       }
 
-      // Sign and return JWS
-      const jws = await jwt.sign(key)
-
-      // Apply manual compression if enabled (jose doesn't automatically compress)
-      if (enableCompression) {
-        return await this.compressJWS(jws)
-      }
-
+      // Build compact JWS (base64url(header) + '.' + base64url(payloadBytes))
+      const jws = await new CompactSign(payloadBytes).setProtectedHeader(header).sign(key)
       return jws
     } catch (_error) {
       const errorMessage = _error instanceof Error ? _error.message : String(_error)
@@ -700,22 +720,18 @@ export class JWSProcessor {
    */
   async verify(jws: string, publicKey: CryptoKey | string): Promise<SmartHealthCardJWT> {
     try {
-      const { jwtVerify } = await import('jose')
-
-      // Step 1: Decompress if needed
-      const decompressedJws = await this.decompressJWS(jws)
+      const { compactVerify } = await import('jose')
 
       // Validate JWS format
-      if (!decompressedJws || typeof decompressedJws !== 'string') {
+      if (!jws || typeof jws !== 'string') {
         throw new JWSError('Invalid JWS: must be a non-empty string')
       }
-
-      const parts = decompressedJws.split('.')
+      const parts = jws.split('.')
       if (parts.length !== 3) {
-        throw new JWSError('Invalid JWS format: must have 3 parts separated by dots')
+        throw new JWSError('Invalid JWS format: must have 3 parts')
       }
 
-      // Handle different key formats
+      // Import key
       let key: CryptoKey
       if (typeof publicKey === 'string') {
         const { importSPKI } = await import('jose')
@@ -724,15 +740,20 @@ export class JWSProcessor {
         key = publicKey
       }
 
-      // Verify JWS and extract payload
-      const { payload } = await jwtVerify(decompressedJws, key, {
-        algorithms: ['ES256'],
-      })
+      // Verify signature over original compact JWS
+      const { payload, protectedHeader } = await compactVerify(jws, key)
 
-      // Convert payload to our SmartHealthCardJWT type through unknown
-      const smartPayload = payload as unknown as SmartHealthCardJWT
+      // Decompress payload if zip: 'DEF'
+      let payloadBytes = payload
+      if (protectedHeader.zip === 'DEF') {
+        payloadBytes = await this.inflateRaw(payload)
+      }
 
-      // Validate the decoded payload structure
+      // Parse JSON
+      const payloadJson = new TextDecoder().decode(payloadBytes)
+      const smartPayload = JSON.parse(payloadJson) as SmartHealthCardJWT
+
+      // Validate structure
       this.validateJWTPayload(smartPayload)
 
       return smartPayload
@@ -742,43 +763,6 @@ export class JWSProcessor {
       }
       const errorMessage = error instanceof Error ? error.message : String(error)
       throw new JWSError(`JWS verification failed: ${errorMessage}`)
-    }
-  }
-
-  /**
-   * Decodes a JWS without verification (for testing/debugging purposes)
-   * WARNING: This does not verify the signature - use verify() for production
-   */
-  async decode(
-    jws: string
-  ): Promise<{ header: Record<string, unknown>; payload: SmartHealthCardJWT }> {
-    try {
-      const { decodeJwt, decodeProtectedHeader } = await import('jose')
-
-      // Step 1: Decompress if needed
-      const decompressedJws = await this.decompressJWS(jws)
-
-      // Validate JWS format
-      if (!decompressedJws || typeof decompressedJws !== 'string') {
-        throw new JWSError('Invalid JWS: must be a non-empty string')
-      }
-
-      const parts = decompressedJws.split('.')
-      if (parts.length !== 3) {
-        throw new JWSError('Invalid JWS format: must have 3 parts separated by dots')
-      }
-
-      // Decode header and payload without verification
-      const header = decodeProtectedHeader(decompressedJws)
-      const payload = decodeJwt(decompressedJws) as unknown as SmartHealthCardJWT
-
-      return { header, payload }
-    } catch (error) {
-      if (error instanceof JWSError) {
-        throw error
-      }
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      throw new JWSError(`JWS decoding failed: ${errorMessage}`)
     }
   }
 
@@ -814,134 +798,6 @@ export class JWSProcessor {
         "Invalid JWT payload: 'vc' (verifiable credential) is required and must be an object"
       )
     }
-  }
-
-  /**
-   * Compresses a JWS using raw DEFLATE algorithm per SMART Health Cards spec
-   * Uses raw DEFLATE compression without headers as required by spec
-   */
-  private async compressJWS(jws: string): Promise<string> {
-    try {
-      // Import fflate dynamically for web compatibility - deflate() produces raw DEFLATE
-      const { deflate } = await import('fflate')
-
-      // Split JWS into header, payload, signature
-      const parts = jws.split('.')
-      if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
-        throw new JWSError('Invalid JWS format for compression')
-      }
-
-      // Decode the payload from base64url to get the raw JSON
-      const payloadBytes = this.base64urlDecode(parts[1])
-
-      // Compress the raw payload using DEFLATE (produces raw DEFLATE per SMART Health Cards spec)
-      const compressedPayload = await new Promise<Uint8Array>((resolve, reject) => {
-        deflate(payloadBytes, (err: Error | null, data: Uint8Array) => {
-          if (err) reject(err)
-          else resolve(data)
-        })
-      })
-
-      // Base64url encode the compressed payload
-      const compressedPayloadB64 = this.base64urlEncode(compressedPayload)
-
-      // Header already has 'zip': 'DEF' from sign method, so just return compressed JWS
-      return `${parts[0]}.${compressedPayloadB64}.${parts[2]}`
-    } catch (error) {
-      throw new JWSError(
-        `DEFLATE compression failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
-    }
-  }
-
-  /**
-   * Decompresses a JWS using raw DEFLATE decompression
-   * Uses raw DEFLATE decompression without headers as required by SMART Health Cards spec
-   */
-  private async decompressJWS(jws: string): Promise<string> {
-    try {
-      // Split JWS into header, payload, signature
-      const parts = jws.split('.')
-      if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
-        // If it's not a valid JWS format, return as-is (let other validation catch it)
-        return jws
-      }
-
-      // Try to parse the header - if it fails, assume uncompressed
-      let headerObj: Record<string, unknown> | undefined
-      try {
-        const headerBytes = this.base64urlDecode(parts[0])
-        headerObj = JSON.parse(new TextDecoder().decode(headerBytes))
-      } catch {
-        // If header parsing fails, assume uncompressed
-        return jws
-      }
-
-      // If no compression, return as-is
-      if (!headerObj || !headerObj.zip || headerObj.zip !== 'DEF') {
-        return jws
-      }
-
-      // Import fflate dynamically for web compatibility - inflate() handles raw DEFLATE
-      const { inflate } = await import('fflate')
-
-      // Decode the compressed payload from base64url
-      const compressedPayload = this.base64urlDecode(parts[1])
-
-      // Decompress the payload using INFLATE (handles raw DEFLATE per SMART Health Cards spec)
-      const decompressedPayload = await new Promise<Uint8Array>((resolve, reject) => {
-        inflate(compressedPayload, (err: Error | null, data: Uint8Array) => {
-          if (err) reject(err)
-          else resolve(data)
-        })
-      })
-
-      // The decompressed payload is the raw JSON, so base64url encode it back
-      const decompressedPayloadB64 = this.base64urlEncode(decompressedPayload)
-
-      // Keep the original header (including zip property) for signature verification
-      // Return decompressed JWS with original header
-      return `${parts[0]}.${decompressedPayloadB64}.${parts[2]}`
-    } catch {
-      // If decompression fails, return original JWS (let JWS verification handle the error)
-      return jws
-    }
-  }
-
-  /**
-   * Base64url encode a Uint8Array
-   */
-  private base64urlEncode(data: Uint8Array): string {
-    // Convert to base64
-    const base64 = btoa(String.fromCharCode(...data))
-
-    // Convert to base64url by replacing characters and removing padding
-    return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-  }
-
-  /**
-   * Base64url decode to Uint8Array
-   */
-  private base64urlDecode(base64url: string): Uint8Array {
-    // Add padding if needed
-    let base64 = base64url
-    while (base64.length % 4) {
-      base64 += '='
-    }
-
-    // Convert base64url to base64
-    base64 = base64.replace(/-/g, '+').replace(/_/g, '/')
-
-    // Decode base64 to binary string
-    const binaryString = atob(base64)
-
-    // Convert to Uint8Array
-    const bytes = new Uint8Array(binaryString.length)
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i)
-    }
-
-    return bytes
   }
 }
 

@@ -145,23 +145,27 @@ describe('SMART Health Cards Library', () => {
         ;(bundle as any).type = 'invalid-type'
 
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
-        expect(() => processor.validate(bundle)).toThrow('Invalid bundle type: invalid-type')
+        expect(() => processor.validate(bundle)).toThrow(
+          'Invalid bundle type for SMART Health Cards: invalid-type'
+        )
       })
 
-      it('should validate valid Bundle.type values', () => {
-        const validTypes = [
-          'collection',
+      it('should accept only "collection" as Bundle.type for SMART Health Cards', () => {
+        const bundle = createValidFhirBundle()
+        bundle.type = 'collection'
+        expect(processor.validate(bundle)).toBe(true)
+
+        const invalidTypes = [
           'batch',
           'history',
           'searchset',
           'transaction',
           'transaction-response',
         ]
-
-        for (const type of validTypes) {
-          const bundle = createValidFhirBundle()
-          bundle.type = type as any // @ts-ignore
-          expect(processor.validate(bundle)).toBe(true)
+        for (const t of invalidTypes) {
+          const b = createValidFhirBundle()
+          ;(b as any).type = t
+          expect(() => processor.validate(b)).toThrow(FhirValidationError)
         }
       })
 
@@ -435,13 +439,15 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const parts = jws.split('.')
         expect(parts).toHaveLength(3)
 
-        // Decode to verify structure (without verification)
-        const decoded = await processor.decode(jws)
-        expect(decoded.header.alg).toBe('ES256')
-        expect(decoded.header.kid).toBe('test-key-id')
-        expect(decoded.header.typ).toBe('JWT')
-        expect(decoded.payload.iss).toBe(validJWTPayload.iss)
-        expect(decoded.payload.nbf).toBe(validJWTPayload.nbf)
+        // Inspect header and payload via verify/decoder
+        const { decodeProtectedHeader } = await import('jose')
+        const header = decodeProtectedHeader(jws)
+        expect(header.alg).toBe('ES256')
+        expect(header.kid).toBe('test-key-id')
+        expect(header.typ).toBe('JWT')
+        const verified = await processor.verify(jws, testPublicKeySPKI)
+        expect(verified.iss).toBe(validJWTPayload.iss)
+        expect(verified.nbf).toBe(validJWTPayload.nbf)
       })
 
       it('should throw JWSError for invalid payload', async () => {
@@ -507,9 +513,8 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
         const jws = await processor.sign(payloadWithoutExp, testPrivateKeyPKCS8, 'test-key-id')
         expect(jws).toBeDefined()
-
-        const decoded = await processor.decode(jws)
-        expect(decoded.payload.exp).toBeUndefined()
+        const verified = await processor.verify(jws, testPublicKeySPKI)
+        expect(verified.exp).toBeUndefined()
       })
     })
 
@@ -552,40 +557,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, 'test-key-id')
         // Try to verify with wrong public key (using the private key string, which will fail)
         await expect(processor.verify(jws, 'wrong-public-key')).rejects.toThrow(JWSError)
-      })
-    })
-
-    describe('decode()', () => {
-      it('should decode JWS without verification', async () => {
-        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, 'test-key-id')
-        const decoded = await processor.decode(jws)
-
-        expect(decoded).toBeDefined()
-        expect(decoded.header).toBeDefined()
-        expect(decoded.payload).toBeDefined()
-
-        expect(decoded.header.alg).toBe('ES256')
-        expect(decoded.header.kid).toBe('test-key-id')
-        expect(decoded.header.typ).toBe('JWT')
-
-        expect(decoded.payload.iss).toBe(validJWTPayload.iss)
-        expect(decoded.payload.nbf).toBe(validJWTPayload.nbf)
-        expect(decoded.payload.exp).toBe(validJWTPayload.exp)
-        expect(decoded.payload.vc).toEqual(validJWTPayload.vc)
-      })
-
-      it('should throw JWSError for invalid JWS format', async () => {
-        await expect(processor.decode('invalid.jws')).rejects.toThrow(JWSError)
-        await expect(processor.decode('invalid.jws')).rejects.toThrow(
-          'Invalid JWS format: must have 3 parts'
-        )
-      })
-
-      it('should throw JWSError for empty JWS', async () => {
-        await expect(processor.decode('')).rejects.toThrow(JWSError)
-        await expect(processor.decode('')).rejects.toThrow(
-          'Invalid JWS: must be a non-empty string'
-        )
       })
     })
 
@@ -686,11 +657,11 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const healthCard = await cardWithExpiration.create(validBundle)
         expect(healthCard).toBeDefined()
 
-        // Decode to check expiration is set
+        // Check header and payload
         const jwsProcessor = new JWSProcessor()
-        const decoded = await jwsProcessor.decode(healthCard)
-        expect(decoded.payload.exp).toBeDefined()
-        expect(decoded.payload.exp).toBeGreaterThan(decoded.payload.nbf)
+        const verified = await jwsProcessor.verify(healthCard, testPublicKeySPKI)
+        expect(verified.exp).toBeDefined()
+        expect((verified.exp as number) > verified.nbf).toBe(true)
       })
 
       it('should throw error for invalid FHIR Bundle', async () => {
@@ -712,22 +683,21 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const healthCard = await smartHealthCard.create(validBundle)
 
         const jwsProcessor = new JWSProcessor()
-        const decoded = await jwsProcessor.decode(healthCard)
-        expect(decoded.payload.iss).toBe(config.issuer)
-        expect(decoded.payload.nbf).toBeDefined()
-        expect(decoded.payload.vc).toBeDefined()
+        const verified = await jwsProcessor.verify(healthCard, testPublicKeySPKI)
+        expect(verified.iss).toBe(config.issuer)
+        expect(verified.nbf).toBeDefined()
+        expect(verified.vc).toBeDefined()
       })
 
       it('should create verifiable credential with correct structure', async () => {
         const healthCard = await smartHealthCard.create(validBundle)
 
         const jwsProcessor = new JWSProcessor()
-        const decoded = await jwsProcessor.decode(healthCard)
-
+        const verified = await jwsProcessor.verify(healthCard, testPublicKeySPKI)
         // Check VC structure
-        expect(decoded.payload.vc.type).toContain('https://smarthealth.cards#health-card')
-        expect(decoded.payload.vc.credentialSubject).toBeDefined()
-        expect(decoded.payload.vc.credentialSubject.fhirBundle).toEqual(validBundle)
+        expect(verified.vc.type).toContain('https://smarthealth.cards#health-card')
+        expect(verified.vc.credentialSubject).toBeDefined()
+        expect(verified.vc.credentialSubject.fhirBundle).toEqual(validBundle)
       })
     })
 
@@ -1345,10 +1315,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       const parts = healthCard.split('.')
       expect(parts).toHaveLength(3)
 
-      // Decode header to check for compression
-      const jwsProcessor = new JWSProcessor()
-      const decoded = await jwsProcessor.decode(healthCard)
-      expect(decoded.header.zip).toBe('DEF')
+      // Check header to ensure compression flag is set
+      const { decodeProtectedHeader } = await import('jose')
+      const header = decodeProtectedHeader(healthCard)
+      expect(header.zip).toBe('DEF')
     })
 
     it('should verify compressed SMART Health Card', async () => {
