@@ -81,7 +81,6 @@ export interface SmartHealthCardConfig {
   issuer: string
   privateKey: CryptoKey | string
   publicKey?: CryptoKey | string
-  keyId: string
   expirationTime?: number // Optional expiration in seconds from now
   enableQROptimization?: boolean // Whether to optimize FHIR Bundle for QR codes
 }
@@ -155,7 +154,7 @@ export class SmartHealthCard {
       const jws = await this.jwsProcessor.sign(
         jwtPayload,
         this.config.privateKey,
-        this.config.keyId,
+        this.config.publicKey,
         true // Enable compression per SMART Health Cards spec
       )
 
@@ -176,9 +175,12 @@ export class SmartHealthCard {
    * Creates a SMART Health Card file content from a FHIR Bundle
    * Returns the file content as a string suitable for .smart-health-card files
    */
-  async createFile(fhirBundle: FhirBundle): Promise<string> {
+  async createFile(
+    fhirBundle: FhirBundle,
+    vcOptions: VerifiableCredentialOptions = {}
+  ): Promise<string> {
     // Generate the JWS
-    const jws = await this.create(fhirBundle)
+    const jws = await this.create(fhirBundle, vcOptions)
 
     // Per SMART Health Cards spec, the file content should be a JSON wrapper
     // with verifiableCredential array containing the JWS
@@ -193,8 +195,11 @@ export class SmartHealthCard {
    * Creates a downloadable Blob for SMART Health Card file (.smart-health-card)
    * Web-compatible method for generating downloadable files
    */
-  async createFileBlob(fhirBundle: FhirBundle): Promise<Blob> {
-    const fileContent = await this.createFile(fhirBundle)
+  async createFileBlob(
+    fhirBundle: FhirBundle,
+    vcOptions: VerifiableCredentialOptions = {}
+  ): Promise<Blob> {
+    const fileContent = await this.createFile(fhirBundle, vcOptions)
 
     // Create a Blob with the appropriate MIME type
     return new Blob([fileContent], {
@@ -479,9 +484,24 @@ export class FhirBundleProcessor {
         throw new FhirValidationError('Resource must be of type Bundle')
       }
 
-      // Validate bundle type (SMART Health Cards requires 'collection')
-      if (bundle.type && bundle.type !== 'collection') {
-        throw new FhirValidationError(`Invalid bundle type for SMART Health Cards: ${bundle.type}`)
+      // Enforce FHIR Bundle.type value set (R4) if provided
+      // SHC 1.3.0 allows any FHIR Bundle.type, but it must still be one of the FHIR-defined codes
+      // See: https://spec.smarthealth.cards/changelog/ (1.3.0) and https://build.fhir.org/valueset-bundle-type.html
+      if (bundle.type) {
+        const allowedTypes = new Set([
+          'document',
+          'message',
+          'transaction',
+          'transaction-response',
+          'batch',
+          'batch-response',
+          'history',
+          'searchset',
+          'collection',
+        ])
+        if (!allowedTypes.has(bundle.type as string)) {
+          throw new FhirValidationError(`Invalid bundle.type: ${bundle.type}`)
+        }
       }
 
       // Validate entries if present
@@ -670,7 +690,7 @@ export class JWSProcessor {
   async sign(
     payload: SmartHealthCardJWT,
     privateKey: CryptoKey | string,
-    keyId: string,
+    publicKey: CryptoKey | string | undefined,
     enableCompression = true
   ): Promise<string> {
     try {
@@ -679,11 +699,16 @@ export class JWSProcessor {
       // Validate required payload fields
       this.validateJWTPayload(payload)
 
+      if (!publicKey) {
+        throw new JWSError('Public key is required to derive kid (RFC7638)')
+      }
+
+      const kid = await this.deriveKidFromPublicKey(publicKey)
+
       // Protected header per SMART Health Cards
-      const header: { alg: 'ES256'; kid: string; typ: 'JWT'; zip?: 'DEF' } = {
+      const header: { alg: 'ES256'; kid: string; zip?: 'DEF' } = {
         alg: 'ES256',
-        kid: keyId,
-        typ: 'JWT',
+        kid,
       }
 
       // Serialize payload
@@ -713,6 +738,25 @@ export class JWSProcessor {
       const errorMessage = _error instanceof Error ? _error.message : String(_error)
       throw new JWSError(`JWS signing failed: ${errorMessage}`)
     }
+  }
+
+  /**
+   * Derives RFC7638 JWK Thumbprint (base64url-encoded SHA-256) from a public key to use as kid
+   */
+  private async deriveKidFromPublicKey(publicKey: CryptoKey | string): Promise<string> {
+    const { importSPKI, exportJWK, calculateJwkThumbprint } = await import('jose')
+
+    let keyObj: CryptoKey
+    if (typeof publicKey === 'string') {
+      keyObj = await importSPKI(publicKey, 'ES256')
+    } else {
+      keyObj = publicKey
+    }
+
+    const jwk = await exportJWK(keyObj)
+    // calculateJwkThumbprint defaults to SHA-256 and returns base64url string in jose v5
+    const kid = await calculateJwkThumbprint(jwk)
+    return kid
   }
 
   /**

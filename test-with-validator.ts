@@ -8,7 +8,7 @@
 import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { exportPKCS8, exportSPKI } from 'jose'
+import { calculateJwkThumbprint, exportJWK, exportPKCS8, exportSPKI } from 'jose'
 import type { FhirBundle } from 'kill-the-clipboard-js'
 
 import { QRCodeGenerator, SmartHealthCard } from 'kill-the-clipboard-js'
@@ -46,14 +46,26 @@ const { publicKey, privateKey } = await crypto.webcrypto.subtle.generateKey(
 
 const privateKeyPKCS8 = await exportPKCS8(privateKey)
 const publicKeySPKI = await exportSPKI(publicKey)
+const publicJwk = await exportJWK(publicKey)
+const kid = await calculateJwkThumbprint(publicJwk)
+
+// Build issuer JWKS with derived kid (RFC7638) and required SMART Health Cards fields
+const issuerJwks = {
+  keys: [
+    {
+      ...publicJwk,
+      use: 'sig',
+      alg: 'ES256',
+      kid,
+    },
+  ],
+}
 
 // Create SMART Health Card configuration
 const config = {
   issuer: 'https://example.com/issuer',
   privateKey: privateKeyPKCS8,
   publicKey: publicKeySPKI,
-  keyId: 'test-key-1',
-  expirationTime: 86400, // 24 hours
   enableQROptimization: true, // Enable FHIR Bundle optimization for QR codes
 }
 
@@ -140,7 +152,12 @@ console.log('🏥 Creating SMART Health Card from COVID-19 vaccination record...
 
 try {
   // Generate SMART Health Card
-  const healthCardJWS = await smartHealthCard.create(covidVaccinationBundle)
+  const healthCardJWS = await smartHealthCard.create(covidVaccinationBundle, {
+    includeAdditionalTypes: [
+      'https://smarthealth.cards#immunization',
+      'https://smarthealth.cards#covid19',
+    ],
+  })
   console.log('✅ Successfully created SMART Health Card JWS')
   console.log(`📏 JWS Length: ${healthCardJWS.length} characters`)
 
@@ -282,6 +299,11 @@ try {
   await writeFile(`${testDir}/qr-codes.html`, qrHtml)
   console.log(`📄 Saved QR codes visualization: ${testDir}/qr-codes.html`)
 
+  // Save issuer JWKS (public keys) so validator can verify signatures without network fetch
+  const jwksPath = `${testDir}/issuer.jwks.json`
+  await writeFile(jwksPath, JSON.stringify(issuerJwks, null, 2))
+  console.log(`📄 Saved issuer JWKS: ${jwksPath}`)
+
   // Test our own verification
   console.log('\n🔍 Testing internal verification...')
   const verifiedVC = await smartHealthCard.verify(healthCardJWS)
@@ -299,7 +321,12 @@ try {
   await writeFile(jwsFile, healthCardJWS)
   console.log(`📄 Saved JWS file: ${jwsFile}`)
 
-  const fileContent = await smartHealthCard.createFile(covidVaccinationBundle)
+  const fileContent = await smartHealthCard.createFile(covidVaccinationBundle, {
+    includeAdditionalTypes: [
+      'https://smarthealth.cards#immunization',
+      'https://smarthealth.cards#covid19',
+    ],
+  })
   const healthCardFile = `${testDir}/covid-vaccination.smart-health-card`
   await writeFile(healthCardFile, fileContent)
   console.log(`📄 Saved SMART Health Card file: ${healthCardFile}`)
@@ -323,16 +350,19 @@ try {
   console.log('1. Go into the health-cards-dev-tools directory:')
   console.log('   cd health-cards-dev-tools')
   console.log('2. Test the SMART Health Card file:')
-  console.log(`   node . --path ../${healthCardFile} --type healthcard`)
+  console.log(`   node . --path ../${healthCardFile} --type healthcard --jwkset ../${jwksPath}`)
   console.log('3. Test the JWS directly:')
-  console.log(`   node . --path ../${jwsFile} --type jws`)
+  console.log(`   node . --path ../${jwsFile} --type jws --jwkset ../${jwksPath}`)
   console.log('4. Test the FHIR Bundle:')
   console.log(`   node . --path ../${bundleFile} --type fhirbundle`)
   console.log('5. Test the QR codes (PNG format):')
-  console.log(`   node . --path ../${singleQRPngPath} --type qr`)
+  console.log(`   node . --path ../${singleQRPngPath} --type qr --jwkset ../${jwksPath}`)
   console.log('   # For chunked QR codes (single command with multiple paths):')
   const chunkedPaths = chunkedQRPngPaths.map(path => `../${path}`).join(' --path ')
-  console.log(`   node . --path ${chunkedPaths} --type qr`)
+  console.log(`   node . --path ${chunkedPaths} --type qr --jwkset ../${jwksPath}`)
+  console.log('6. (Optional) Validate the JWKS itself:')
+  console.log(`   node . --path ../${jwksPath} --type jwkset`)
+
   console.log('\n👀 Open the QR codes visualization:')
   console.log(`   Open ${testDir}/qr-codes.html in your browser`)
 } catch (error) {

@@ -62,8 +62,7 @@ import { SmartHealthCard } from 'kill-the-clipboard-js';
 const healthCard = new SmartHealthCard({
   issuer: 'https://your-healthcare-org.com',
   privateKey: privateKeyPKCS8String, // ES256 private key in PKCS#8 format
-  publicKey: publicKeySPKIString,     // ES256 public key in SPKI format  
-  keyId: 'your-key-identifier',
+  publicKey: publicKeySPKIString,     // ES256 public key in SPKI format
   expirationTime: 86400, // Optional: 24 hours in seconds
 });
 
@@ -141,7 +140,10 @@ fhirProcessor.validate(processedBundle);
 // Create Verifiable Credential
 const vc = vcProcessor.create(processedBundle, {
   fhirVersion: '4.0.1',
-  includeAdditionalTypes: ['https://smarthealth.cards#covid19']
+  includeAdditionalTypes: [
+      'https://smarthealth.cards#immunization',
+      'https://smarthealth.cards#covid19',
+    ],
 });
 
 // Create JWT payload
@@ -152,7 +154,7 @@ const jwtPayload = {
 };
 
 // Sign to create JWS
-const jws = await jwsProcessor.sign(jwtPayload, privateKey, keyId);
+const jws = await jwsProcessor.sign(jwtPayload, privateKey, publicKey);
 
 // Verify JWS
 const verified = await jwsProcessor.verify(jws, publicKey);
@@ -269,8 +271,7 @@ const publicKeySPKI = await exportSPKI(publicKey);
 const config = {
   issuer: 'https://your-org.com',
   privateKey: privateKeyPKCS8,
-  publicKey: publicKeySPKI, 
-  keyId: 'key-1',
+  publicKey: publicKeySPKI,
 };
 ```
 
@@ -291,8 +292,8 @@ new SmartHealthCard(config: SmartHealthCardConfig)
 - `create(fhirBundle: FhirBundle, options?: VerifiableCredentialOptions): Promise<string>` - Creates a signed SMART Health Card JWS (supports additional VC types via `options.includeAdditionalTypes`)
 - `verify(jws: string): Promise<VerifiableCredential>` - Verifies and decodes a SMART Health Card
 - `getBundle(jws: string): Promise<FhirBundle>` - Verifies and returns the FHIR Bundle directly (convenience method)
-- `createFile(fhirBundle: FhirBundle): Promise<string>` - Creates file content for .smart-health-card files
-- `createFileBlob(fhirBundle: FhirBundle): Promise<Blob>` - Creates downloadable Blob
+- `createFile(fhirBundle: FhirBundle, options?: VerifiableCredentialOptions): Promise<string>` - Creates file content for .smart-health-card files (supports additional VC types via `options.includeAdditionalTypes`)
+- `createFileBlob(fhirBundle: FhirBundle, options?: VerifiableCredentialOptions): Promise<Blob>` - Creates downloadable Blob (supports additional VC types via `options.includeAdditionalTypes`)
 - `verifyFile(fileContent: string | Blob): Promise<VerifiableCredential>` - Verifies from file content
 
 ### `FhirBundleProcessor`
@@ -313,7 +314,7 @@ Creates and validates W3C Verifiable Credentials for SMART Health Cards.
 
 Handles JWT/JWS signing and verification with ES256 algorithm. Payloads are raw-DEFLATE compressed when `zip: "DEF"` is set.
 
-- `sign(payload: SmartHealthCardJWT, privateKey, keyId): Promise<string>` - Signs JWT (compresses payload before signing, sets `zip: "DEF"`)
+- `sign(payload: SmartHealthCardJWT, privateKey, publicKey): Promise<string>` - Signs JWT (compresses payload before signing, sets `zip: "DEF"`). The `kid` is derived from the public key using RFC7638 JWK Thumbprint as required by SMART Health Cards spec.
 - `verify(jws: string, publicKey): Promise<SmartHealthCardJWT>` - Verifies JWS and returns payload
 - To inspect headers without verification, use `jose.decodeProtectedHeader(jws)` from the `jose` library
 

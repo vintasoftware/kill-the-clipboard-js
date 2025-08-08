@@ -7,6 +7,7 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [x] Updated package.json with SMART Health Cards library information, installed required dependencies (jose, qrcode, fflate, ajv, @medplum/fhirtypes)
 - [x] Designed and implemented TypeScript interfaces and base classes for SmartHealthCard, FhirBundleProcessor, JWSProcessor, QRCodeGenerator with proper error handling hierarchy
 - [x] Implemented FHIR Bundle handling with validation and spec-compliant processing (Bundle.type="collection" default, removed aggressive field minification per spec analysis)
+- [x] Updated FHIR Bundle validation to allow any FHIR `Bundle.type` per spec (1.3.0) while still defaulting to `collection` when absent
 - [x] Analyzed official SMART Health Cards spec and corrected data minimization approach to follow actual spec requirements (credential-level granularity, not aggressive field removal)
 - [x] Implemented VerifiableCredentialProcessor with create() and validate() methods, proper @context and type array handling, FHIR version validation, and comprehensive test suite (44 tests passing)
 - [x] Removed deprecated minify() method, streamlined Bundle processing with clean process() method, aligned API with actual spec requirements
@@ -42,6 +43,7 @@ JavaScript/TypeScript universal (browser and node) library to generate QR codes 
 - [ ] Test the library with Inferno Smart Health Card Test Kit: https://github.com/inferno-framework/smart-health-cards-test-kit
 - [ ] Create detailed documentation with practical examples for common use cases
 - [ ] Configure build system for both CommonJS and ES modules with proper TypeScript declarations
+- [x] Derive kid from public key per RFC7638 (JWK Thumbprint) and remove reliance on user-supplied keyId for signing
 
 ## Reference Implementation Analysis
 

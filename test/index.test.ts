@@ -143,29 +143,23 @@ describe('SMART Health Cards Library', () => {
       it('should throw FhirValidationError for invalid Bundle.type', () => {
         const bundle = createValidFhirBundle()
         ;(bundle as any).type = 'invalid-type'
-
         expect(() => processor.validate(bundle)).toThrow(FhirValidationError)
-        expect(() => processor.validate(bundle)).toThrow(
-          'Invalid bundle type for SMART Health Cards: invalid-type'
-        )
+        expect(() => processor.validate(bundle)).toThrow('Invalid bundle.type: invalid-type')
       })
 
-      it('should accept only "collection" as Bundle.type for SMART Health Cards', () => {
-        const bundle = createValidFhirBundle()
-        bundle.type = 'collection'
-        expect(processor.validate(bundle)).toBe(true)
-
-        const invalidTypes = [
+      it('should accept common FHIR Bundle.type values', () => {
+        const acceptedTypes = [
+          'collection',
           'batch',
           'history',
           'searchset',
           'transaction',
           'transaction-response',
         ]
-        for (const t of invalidTypes) {
+        for (const t of acceptedTypes) {
           const b = createValidFhirBundle()
           ;(b as any).type = t
-          expect(() => processor.validate(b)).toThrow(FhirValidationError)
+          expect(processor.validate(b)).toBe(true)
         }
       })
 
@@ -430,7 +424,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
     describe('sign()', () => {
       it('should sign a valid JWT payload', async () => {
-        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, 'test-key-id')
+        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
 
         expect(jws).toBeDefined()
         expect(typeof jws).toBe('string')
@@ -440,11 +434,16 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         expect(parts).toHaveLength(3)
 
         // Inspect header and payload via verify/decoder
-        const { decodeProtectedHeader } = await import('jose')
+        const { decodeProtectedHeader, importSPKI, exportJWK, calculateJwkThumbprint } =
+          await import('jose')
         const header = decodeProtectedHeader(jws)
         expect(header.alg).toBe('ES256')
-        expect(header.kid).toBe('test-key-id')
-        expect(header.typ).toBe('JWT')
+
+        // Verify kid is derived from the provided public key (JWK thumbprint per SMART Health Cards spec)
+        const keyObj = await importSPKI(testPublicKeySPKI, 'ES256')
+        const jwk = await exportJWK(keyObj)
+        const expectedKid = await calculateJwkThumbprint(jwk)
+        expect(header.kid).toBe(expectedKid)
         const verified = await processor.verify(jws, testPublicKeySPKI)
         expect(verified.iss).toBe(validJWTPayload.iss)
         expect(verified.nbf).toBe(validJWTPayload.nbf)
@@ -458,16 +457,24 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         } as any // @ts-ignore
 
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow(JWSError)
       })
 
       it('should throw JWSError for null payload', async () => {
         await expect(
-          processor.sign(null as unknown as SmartHealthCardJWT, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(
+            null as unknown as SmartHealthCardJWT,
+            testPrivateKeyPKCS8,
+            testPublicKeySPKI
+          )
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(null as unknown as SmartHealthCardJWT, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(
+            null as unknown as SmartHealthCardJWT,
+            testPrivateKeyPKCS8,
+            testPublicKeySPKI
+          )
         ).rejects.toThrow('Invalid JWT payload: must be an object')
       })
 
@@ -476,10 +483,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         delete (invalidPayload as Record<string, unknown>).iss
 
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow("'iss' (issuer) is required")
       })
 
@@ -488,10 +495,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         delete (invalidPayload as Record<string, unknown>).nbf
 
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow("'nbf' (not before) is required")
       })
 
@@ -500,10 +507,10 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         invalidPayload.exp = invalidPayload.nbf - 1000 // exp before nbf
 
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow(JWSError)
         await expect(
-          processor.sign(invalidPayload, testPrivateKeyPKCS8, 'test-key-id')
+          processor.sign(invalidPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         ).rejects.toThrow("'exp' must be greater than 'nbf'")
       })
 
@@ -511,7 +518,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         const payloadWithoutExp = { ...validJWTPayload }
         delete payloadWithoutExp.exp
 
-        const jws = await processor.sign(payloadWithoutExp, testPrivateKeyPKCS8, 'test-key-id')
+        const jws = await processor.sign(payloadWithoutExp, testPrivateKeyPKCS8, testPublicKeySPKI)
         expect(jws).toBeDefined()
         const verified = await processor.verify(jws, testPublicKeySPKI)
         expect(verified.exp).toBeUndefined()
@@ -520,7 +527,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 
     describe('verify()', () => {
       it('should verify a valid JWS', async () => {
-        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, 'test-key-id')
+        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         const verifiedPayload = await processor.verify(jws, testPublicKeySPKI)
 
         expect(verifiedPayload).toBeDefined()
@@ -554,7 +561,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
       })
 
       it('should throw JWSError for wrong signature', async () => {
-        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, 'test-key-id')
+        const jws = await processor.sign(validJWTPayload, testPrivateKeyPKCS8, testPublicKeySPKI)
         // Try to verify with wrong public key (using the private key string, which will fail)
         await expect(processor.verify(jws, 'wrong-public-key')).rejects.toThrow(JWSError)
       })
@@ -592,14 +599,14 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
             processor.sign(
               testCase.payload as any, // @ts-ignore
               testPrivateKeyPKCS8,
-              'test-key-id'
+              testPublicKeySPKI
             )
           ).rejects.toThrow(JWSError)
           await expect(
             processor.sign(
               testCase.payload as any, // @ts-ignore
               testPrivateKeyPKCS8,
-              'test-key-id'
+              testPublicKeySPKI
             )
           ).rejects.toThrow(testCase.error)
         }
@@ -630,7 +637,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         issuer: 'https://example.com/issuer',
         privateKey: testPrivateKeyPKCS8,
         publicKey: testPublicKeySPKI,
-        keyId: 'test-key-id',
       }
       smartHealthCard = new SmartHealthCard(config)
     })
@@ -886,7 +892,7 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         issuer: 'https://example.com/issuer',
         privateKey: testPrivateKeyPKCS8,
         publicKey: testPublicKeySPKI,
-        keyId: 'test-key-id',
+        // kid derived from public key
       })
 
       const validBundle = createValidFhirBundle()
@@ -1239,7 +1245,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
           issuer: 'https://example.com/issuer',
           privateKey: testPrivateKeyPKCS8,
           publicKey: testPublicKeySPKI,
-          keyId: 'test-key-id',
         })
 
         const verifiedVC = await smartHealthCard.verify(scannedJWS)
@@ -1300,7 +1305,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         issuer: 'https://example.com/issuer',
         privateKey: testPrivateKeyPKCS8,
         publicKey: testPublicKeySPKI,
-        keyId: 'test-key-id',
       }
       smartHealthCard = new SmartHealthCard(config)
     })
@@ -1360,7 +1364,6 @@ EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
         issuer: 'https://example.com/issuer',
         privateKey: testPrivateKeyPKCS8,
         publicKey: testPublicKeySPKI,
-        keyId: 'test-key-id',
       }
       smartHealthCard = new SmartHealthCard(config)
     })
@@ -1589,7 +1592,6 @@ CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
 EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 -----END PUBLIC KEY-----`,
-        keyId: 'test-key-id',
         enableQROptimization: true,
       }
 
@@ -1626,7 +1628,6 @@ CpCKmMQlrMSk1cpRsngZXTNiLipmog4Lm0FPIBhqzskn1FbqYW43KyAk
 MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEnK1jOUDttU3YQmaWYUcJQ/C84E2J
 EQqQipjEJazEpNXKUbJ4GV0zYi4qZqIOC5tBTyAYas7JJ9RW6mFuNysgJA==
 -----END PUBLIC KEY-----`,
-        keyId: 'test-key-id',
         enableQROptimization: true,
       }
 
